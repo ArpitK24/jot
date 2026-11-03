@@ -1,0 +1,5 @@
+/jot
+/dist/
+*.test
+*.out
+.jot/
