@@ -30,6 +30,9 @@ Download a binary for macOS, Linux or Windows from
 go install github.com/ArpitK24/jot/cmd/jot@latest
 ```
 
+It's also listed on the [official MCP Registry](https://registry.modelcontextprotocol.io)
+as `io.github.ArpitK24/jot`, with one-click `.mcpb` bundles on every release.
+
 Then create your memory store:
 
 ```sh
