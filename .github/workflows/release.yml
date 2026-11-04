@@ -2,39 +2,50 @@ name: release
 on:
   push:
     tags: ["v*"]
-permissions:
-  contents: write
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release
+      id-token: write # publish to the MCP Registry via OIDC
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.23"
       - run: go test ./...
-      - name: Build binaries
-        env:
-          CGO_ENABLED: "0"
-        run: |
-          set -euo pipefail
-          v="${GITHUB_REF_NAME#v}"
-          mkdir dist
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
-            os="${target%/*}"; arch="${target#*/}"
-            name="jot_${v}_${os}_${arch}"
-            bin="jot"; [ "$os" = windows ] && bin="jot.exe"
-            mkdir -p "build/$name"
-            GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=$v" -o "build/$name/$bin" ./cmd/jot
-            cp README.md LICENSE "build/$name/"
-            if [ "$os" = windows ]; then
-              (cd build && zip -qr "../dist/$name.zip" "$name")
-            else
-              tar -C build -czf "dist/$name.tar.gz" "$name"
-            fi
-          done
-          (cd dist && sha256sum * > checksums.txt)
-      - name: Publish release
+
+      - name: Build archives, MCP bundles and server.json
+        run: packaging/release.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.zip dist/*.mcpb dist/checksums.txt \
+            --title "$GITHUB_REF_NAME" --generate-notes
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Download and verify mcp-publisher
+        run: |
+          set -euo pipefail
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl --fail --location --silent --show-error --output "$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output "$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+
+      - name: Publish to the MCP Registry
+        working-directory: dist
+        run: |
+          ../mcp-publisher login github-oidc
+          ../mcp-publisher publish
