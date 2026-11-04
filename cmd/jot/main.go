@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime/debug"
 	"strings"
 
 	"github.com/ArpitK24/jot/internal/mcp"
@@ -15,7 +16,18 @@ import (
 	"github.com/ArpitK24/jot/internal/store"
 )
 
-var version = "0.1.0-dev"
+// version is set by release builds with -ldflags "-X main.version=...".
+var version = ""
+
+func init() {
+	if version != "" {
+		return
+	}
+	version = "dev"
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		version = strings.TrimPrefix(bi.Main.Version, "v")
+	}
+}
 
 const usage = `jot - shared memory for every AI agent
 
