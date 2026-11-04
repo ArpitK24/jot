@@ -1,0 +1,42 @@
+{
+  "manifest_version": "0.3",
+  "name": "jot",
+  "display_name": "jot",
+  "version": "0.0.0",
+  "description": "Shared, local-first memory for every AI agent, stored as Markdown and versioned in git.",
+  "long_description": "jot gives every MCP client one memory on your machine. Agents call `recall` at the start of a task and `remember` when you state a preference, make a decision or correct them. Memories are plain Markdown files in `~/.jot`, and every change is a git commit.",
+  "author": {
+    "name": "Arpit Kohale",
+    "url": "https://github.com/ArpitK24"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ArpitK24/jot.git"
+  },
+  "homepage": "https://github.com/ArpitK24/jot",
+  "documentation": "https://github.com/ArpitK24/jot/blob/main/docs/setup.md",
+  "support": "https://github.com/ArpitK24/jot/issues",
+  "server": {
+    "type": "binary",
+    "entry_point": "server/jot",
+    "mcp_config": {
+      "command": "${__dirname}/server/jot",
+      "args": ["serve"],
+      "env": {
+        "JOT_SOURCE": "mcpb"
+      }
+    }
+  },
+  "tools": [
+    { "name": "remember", "description": "Save a preference, decision, fact or note" },
+    { "name": "recall", "description": "Search memory for what's relevant to the task" },
+    { "name": "update", "description": "Rewrite a memory that changed" },
+    { "name": "forget", "description": "Delete a memory" },
+    { "name": "list", "description": "Newest memories, filtered by kind or tags" }
+  ],
+  "keywords": ["memory", "agents", "markdown", "git", "local-first"],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"]
+  }
+}

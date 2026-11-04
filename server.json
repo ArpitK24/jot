@@ -1,0 +1,13 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ArpitK24/jot",
+  "title": "jot",
+  "description": "Shared, local-first memory for every AI agent, stored as Markdown and versioned in git.",
+  "repository": {
+    "url": "https://github.com/ArpitK24/jot",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/ArpitK24/jot",
+  "version": "0.0.0",
+  "packages": []
+}
