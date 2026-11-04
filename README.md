@@ -23,8 +23,16 @@ $ jot search "package manager"
 
 ## Install
 
+Download a binary for macOS, Linux or Windows from
+[Releases](https://github.com/ArpitK24/jot/releases), or build with Go 1.23+:
+
 ```sh
 go install github.com/ArpitK24/jot/cmd/jot@latest
+```
+
+Then create your memory store:
+
+```sh
 jot init
 ```
 
