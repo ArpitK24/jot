@@ -218,6 +218,38 @@ func (s *Store) Log(n int) (string, error) {
 	return out, nil
 }
 
+// Change is one commit that touched a memory.
+type Change struct {
+	Hash    string
+	Date    time.Time
+	Subject string
+}
+
+// History lists the commits that touched one memory, newest first,
+// following it across merges. It is empty when the store has no git.
+func (s *Store) History(id string, n int) ([]Change, error) {
+	if _, err := s.path(id); err != nil {
+		return nil, err
+	}
+	if !s.isGit() {
+		return nil, nil
+	}
+	out, err := s.git("log", fmt.Sprintf("-%d", n), "--pretty=format:%h%x09%aI%x09%s", "--", id+".md")
+	if err != nil {
+		return nil, fmt.Errorf("git log: %v: %s", err, out)
+	}
+	var cs []Change
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.SplitN(line, "\t", 3)
+		if len(f) != 3 {
+			continue
+		}
+		t, _ := time.Parse(time.RFC3339, f[1])
+		cs = append(cs, Change{Hash: f[0], Date: t, Subject: f[2]})
+	}
+	return cs, nil
+}
+
 func (s *Store) write(m *Memory) error {
 	p, err := s.path(m.ID)
 	if err != nil {
@@ -253,6 +285,7 @@ func (s *Store) isGit() bool {
 func (s *Store) git(args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = s.Dir
+	hideWindow(cmd)
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }

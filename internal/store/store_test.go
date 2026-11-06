@@ -118,3 +118,28 @@ func TestMerge(t *testing.T) {
 		t.Fatalf("missing drop: %v", err)
 	}
 }
+
+func TestHistory(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not installed")
+	}
+	s := Open(filepath.Join(t.TempDir(), "mem"), "global")
+	a, _ := s.Add("first memory body", KindNote, nil, "cli")
+	b, _ := s.Add("second memory body", KindNote, nil, "cli")
+	if _, err := s.Update(a.ID, "first memory, edited", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	h, err := s.History(a.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(h) != 2 || h[0].Hash == "" || h[0].Date.IsZero() {
+		t.Fatalf("want 2 changes for a, got %+v", h)
+	}
+	if h, _ := s.History(b.ID, 10); len(h) != 1 {
+		t.Fatalf("want 1 change for b, got %+v", h)
+	}
+	if _, err := s.History("../x", 10); err == nil {
+		t.Fatal("bad id accepted")
+	}
+}
