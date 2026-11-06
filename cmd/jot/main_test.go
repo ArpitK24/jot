@@ -65,3 +65,36 @@ func chdir(t *testing.T, dir string) {
 	}
 	t.Cleanup(func() { os.Chdir(old) })
 }
+
+func TestSetup(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("APPDATA", filepath.Join(home, "AppData"))
+	os.MkdirAll(filepath.Join(home, ".cursor"), 0o755)
+	os.MkdirAll(filepath.Join(home, ".codex"), 0o755)
+
+	out := jot(t, "", "setup", "--dry-run", "--command", "/bin/jot")
+	if !strings.Contains(out, "Cursor          will connect") || !strings.Contains(out, "Claude Desktop  not installed") {
+		t.Fatalf("dry run:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".cursor", "mcp.json")); err == nil {
+		t.Fatal("dry run wrote a file")
+	}
+	if out := jot(t, "n\n", "setup", "--command", "/bin/jot"); !strings.Contains(out, "Nothing changed") {
+		t.Fatalf("declined:\n%s", out)
+	}
+	if out := jot(t, "y\n", "setup", "--command", "/bin/jot"); !strings.Contains(out, "Codex           connected") {
+		t.Fatalf("apply:\n%s", out)
+	}
+	if out := jot(t, "", "setup", "--command", "/bin/jot"); !strings.Contains(out, "Nothing to change") {
+		t.Fatalf("second run:\n%s", out)
+	}
+	if out := jot(t, "", "setup", "--undo", "cursor"); !strings.Contains(out, "Cursor          removed") {
+		t.Fatalf("undo:\n%s", out)
+	}
+	if err := run([]string{"setup", "vscode"}, strings.NewReader(""), &bytes.Buffer{}); err == nil {
+		t.Fatal("want error for unknown tool")
+	}
+}

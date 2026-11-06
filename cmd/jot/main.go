@@ -44,6 +44,10 @@ Usage:
   jot rm <id>                     forget a memory (git history keeps it)
   jot log [-n 20]                 history of changes
   jot where                       print the stores in use
+  jot setup [tools...]            connect jot to the AI tools on this machine
+      --dry-run                   show the changes, write nothing
+      -y, --yes                   don't ask before writing
+      --undo                      remove jot from those tools again
   jot serve                       run the MCP server on stdio
   jot version
 `
@@ -204,6 +208,9 @@ func run(argv []string, stdin io.Reader, stdout io.Writer) error {
 			fmt.Fprintf(stdout, "%-7s %s (%s)\n", st.Scope, st.Dir, state)
 		}
 		return nil
+
+	case "setup":
+		return runSetup(args, stdin, stdout)
 
 	case "serve":
 		src := os.Getenv("JOT_SOURCE")
