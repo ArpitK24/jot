@@ -81,7 +81,7 @@ func TestProjectsAndDuplicates(t *testing.T) {
 	if len(pairs) != 1 {
 		t.Fatalf("want 1 pair, got %d", len(pairs))
 	}
-	if !strings.Contains(pairs[0].MergedBody, "field errors") {
+	if !strings.Contains(pairs[0].MergedBody, "stable type URI") {
 		t.Fatalf("merged body lost text: %q", pairs[0].MergedBody)
 	}
 	if err := a.KeepBoth(x.ID, y.ID); err != nil {
