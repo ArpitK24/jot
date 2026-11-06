@@ -47,14 +47,14 @@ const S = {
   filter: { type: 'all' },  // all | pinned | store:<key> | source:<name>
   query: '', hits: null,
   sort: 'updated',
-  sel: null,                // "store\u0000id"
+  sel: null,                // "store\u001fid" (no NUL: HTML attributes can't carry it)
   editing: null,            // {mode:'new'|'edit', ...}
   history: [],
   reviewIndex: 0,
   settingsTab: 'general',
   obStep: 1, obPick: new Set(), obCur: null,
 };
-const keyOf = n => n.store + '\u0000' + n.id;
+const keyOf = n => n.store + '\u001f' + n.id;
 const isMac = () => (S.state && S.state.os === 'darwin');
 const modKey = () => isMac() ? '⌘' : 'Ctrl';
 
@@ -171,7 +171,7 @@ function visible() {
   else if (f.type === 'store') list = list.filter(n => n.store === f.key);
   else if (f.type === 'source') list = list.filter(n => (n.source || 'unknown') === f.key);
   if (S.hits) {
-    const rank = new Map(S.hits.map((h, i) => [h.store + '\u0000' + h.id, i]));
+    const rank = new Map(S.hits.map((h, i) => [keyOf(h), i]));
     list = list.filter(n => rank.has(keyOf(n))).sort((a, b) => rank.get(keyOf(a)) - rank.get(keyOf(b)));
   } else if (S.sort === 'created') list = [...list].sort((a, b) => new Date(b.created) - new Date(a.created));
   else if (S.sort === 'title') list = [...list].sort((a, b) => a.title.localeCompare(b.title));
@@ -389,7 +389,11 @@ function bindOnboarding() {
   });
   on('ob-path', async () => { try { S.state = await api.AddToPath(); render(); toast('Added. Open a new terminal to use jot.'); } catch (e) { fail(e); } });
   on('ob-proj', async () => { try { const d = await api.ChooseProject(); if (d) { await refresh(); toast('Added ' + d.split(/[\\/]/).pop()); } } catch (e) { fail(e); } });
-  on('ob-done', async () => { try { await api.FinishOnboarding(); await refresh(); } catch (e) { fail(e); } S.view = 'library'; render(); });
+  on('ob-done', async () => {
+    try { await api.FinishOnboarding(); await refresh(); } catch (e) { fail(e); }
+    S.view = 'library'; S.filter = { type: 'all' };
+    const v = visible(); S.sel = v[0] ? keyOf(v[0]) : null; await loadHistory(); render();
+  });
   document.querySelectorAll('.tt tr.click').forEach(tr => tr.onclick = ev => {
     const id = tr.dataset.id, t = S.tools.find(t => t.id === id);
     if (ev.target.dataset.cb && (t.state === 'absent' || t.state === 'different') && S.state.cli) {
@@ -409,7 +413,7 @@ function renderSettings() {
     body = `<div class="form">
 <div class="lbl">Version</div><div class="val"><span class="pill">jot ${esc(st.version)}</span></div>
 <div class="lbl">Command line</div><div class="val">${st.cli ? `<div class="line"><span class="pill" title="${esc(st.cli)}">${esc(st.cli)}</span>${st.onPath ? '<span class="ok" style="font-size:12.5px">● on PATH</span>' : '<button class="btn sm" id="s-path">Add to PATH</button>'}</div>
-<div class="hint">${st.onPath ? 'Run <span class="mono">jot</span> in any new terminal. Try <span class="mono">jot list</span> or <span class="mono">jot search</span>.' : 'Adding it lets you run <span class="mono">jot</span> from any terminal.'}</div>` : '<span class="muted">Not found next to the app. Reinstall jot to get the command-line tool.</span>'}</div>
+<div class="hint">${st.onPath ? 'Run <span class="mono">jot</span> in any new terminal. Try <span class="mono">jot ls</span> or <span class="mono">jot search</span>.' : 'Adding it lets you run <span class="mono">jot</span> from any terminal.'}</div>` : '<span class="muted">Not found next to the app. Reinstall jot to get the command-line tool.</span>'}</div>
 <hr>
 <div class="lbl">Search</div><div class="val">Keyword search with relevance ranking, tag matches and a boost for recent notes. Built in, works offline.</div>
 <div class="lbl">Duplicates</div><div class="val">${S.dupes.length ? `${S.dupes.length} pair${S.dupes.length > 1 ? 's' : ''} to review. <button class="btn sm" id="s-review" style="margin-left:6px">Review</button>` : 'None right now.'}<div class="hint">jot flags notes that share most of their words. Agents get the same warning before they save a near copy.</div></div>
