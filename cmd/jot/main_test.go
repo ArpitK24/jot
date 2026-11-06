@@ -98,3 +98,30 @@ func TestSetup(t *testing.T) {
 		t.Fatal("want error for unknown tool")
 	}
 }
+
+func TestDupesAndMerge(t *testing.T) {
+	t.Setenv("JOT_HOME", filepath.Join(t.TempDir(), "jot"))
+	chdir(t, t.TempDir())
+	a := strings.Fields(jot(t, "", "add", "-t", "js", "Use pnpm for every JS project. Never commit package-lock.json."))[1]
+	b := strings.Fields(jot(t, "", "add", "-t", "node", "Use pnpm for every JS project. Pin the version with the packageManager field in package.json."))[1]
+	jot(t, "", "add", "Deploy the web app on Vercel.")
+
+	out := jot(t, "", "dupes")
+	if !strings.Contains(out, a) || !strings.Contains(out, b) || !strings.Contains(out, "1 possible duplicate") {
+		t.Fatalf("dupes:\n%s", out)
+	}
+	if out := jot(t, "", "merge", "--dry-run", b, a); !strings.Contains(out, "Never commit") {
+		t.Fatalf("dry merge:\n%s", out)
+	}
+	jot(t, "", "merge", b, a)
+	out = jot(t, "", "show", b)
+	if !strings.Contains(out, "Never commit") || !strings.Contains(out, "tags: [js, node]") {
+		t.Fatalf("merged:\n%s", out)
+	}
+	if err := run([]string{"show", a}, strings.NewReader(""), &bytes.Buffer{}); err == nil {
+		t.Fatal("dropped memory still exists")
+	}
+	if out := jot(t, "", "dupes"); !strings.Contains(out, "no duplicates") {
+		t.Fatalf("after merge:\n%s", out)
+	}
+}

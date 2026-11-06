@@ -43,6 +43,10 @@ Usage:
   jot edit <id>                   open a memory in $EDITOR
   jot rm <id>                     forget a memory (git history keeps it)
   jot log [-n 20]                 history of changes
+  jot dupes [--min 0.6]           list memories that look like duplicates
+  jot merge <keep> <drop>         fold <drop> into <keep> (git history keeps it)
+      --body text|-               use this text instead of the automatic merge
+      --dry-run                   print the merged text, change nothing
   jot where                       print the stores in use
   jot setup [tools...]            connect jot to the AI tools on this machine
       --dry-run                   show the changes, write nothing
@@ -208,6 +212,12 @@ func run(argv []string, stdin io.Reader, stdout io.Writer) error {
 			fmt.Fprintf(stdout, "%-7s %s (%s)\n", st.Scope, st.Dir, state)
 		}
 		return nil
+
+	case "dupes":
+		return runDupes(stores, args, stdout)
+
+	case "merge":
+		return runMerge(stores, args, stdin, stdout)
 
 	case "setup":
 		return runSetup(args, stdin, stdout)
