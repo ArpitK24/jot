@@ -228,14 +228,17 @@ func write(path string, old, data []byte) error {
 	return os.Rename(tmp, path)
 }
 
+type serverEntry struct {
+	Type    string            `json:"type,omitempty"`
+	Command string            `json:"command"`
+	Args    []string          `json:"args"`
+	Env     map[string]string `json:"env"`
+}
+
 func entry(c Client, command string) json.RawMessage {
-	e := map[string]any{
-		"command": command,
-		"args":    []string{"serve"},
-		"env":     map[string]string{"JOT_SOURCE": c.ID},
-	}
+	e := serverEntry{Command: command, Args: []string{"serve"}, Env: map[string]string{"JOT_SOURCE": c.ID}}
 	if c.ID == "claude-code" {
-		e["type"] = "stdio"
+		e.Type = "stdio"
 	}
 	b, _ := json.Marshal(e)
 	return b

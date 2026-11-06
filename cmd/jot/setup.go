@@ -67,7 +67,7 @@ func runSetup(args []string, stdin io.Reader, stdout io.Writer) error {
 	for _, p := range todo {
 		fmt.Fprintf(stdout, "\n%s\n", tilde(p.Client.Config))
 		for _, line := range strings.Split(strings.TrimRight(p.Snippet, "\n"), "\n") {
-			fmt.Fprintf(stdout, "+ %s\n", line)
+			fmt.Fprintln(stdout, strings.TrimRight("+ "+line, " "))
 		}
 	}
 	if *dry {
