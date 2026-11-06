@@ -304,7 +304,7 @@ function renderEditor() {
 function renderReview() {
   if (!S.dupes.length) return `<div class="rv"><div class="empty" style="margin-top:100px"><h3>Nothing to review</h3>No two notes say the same thing right now.</div></div>`;
   const i = S.reviewIndex, p = S.dupes[i], d = wordDiff(p.drop.body, p.keep.body);
-  const who = p.keep.source === p.drop.source ? `${p.keep.source || 'Someone'} saved two notes`
+  const who = p.keep.source === p.drop.source ? `${cap(p.keep.source || 'someone')} saved two notes`
     : `${cap(p.drop.source || 'unknown')} and ${p.keep.source || 'unknown'} each saved a note`;
   const days = Math.round(Math.abs(new Date(p.keep.created) - new Date(p.drop.created)) / 864e5);
   const when = days === 0 ? 'on the same day' : days === 1 ? 'a day apart' : `${days} days apart`;
@@ -433,7 +433,8 @@ function renderSettings() {
     }).join('');
     const cur = S.tools.find(t => t.id === S.obCur && t.state !== 'missing');
     const diff = cur && cur.snippet ? `<div class="diff"><div class="h"><span>${esc(cur.config)}</span><span>${cur.state === 'connected' ? 'current entry' : '+' + cur.lines + ' lines'}</span></div><pre>${esc(cur.snippet).split('\n').map(l => `<span class="add">${cur.state === 'connected' ? '  ' : '+ '}${l}</span>`).join('\n')}</pre></div>` : '';
-    body = `<div class="form" style="display:block"><p class="muted" style="margin-bottom:16px;font-size:13px;line-height:1.55">jot adds one <span class="mono">jot</span> entry to each tool’s MCP config. The first time it edits a file, it saves the original as <span class="mono">.jot-backup</span>. Restart a tool after connecting it.</p><table class="tt">${rows}</table>${diff}</div>`;
+    body = `<div class="form" style="display:block"><p class="muted" style="margin-bottom:16px;font-size:13px;line-height:1.55">jot adds one <span class="mono">jot</span> entry to each tool’s MCP config. The first time it edits a file, it saves the original as <span class="mono">.jot-backup</span>. Restart a tool after connecting it.</p><table class="tt">${rows}</table>${diff}
+${S.tools.some(t => t.state === 'missing') ? `<div class="line" style="margin-top:14px;gap:12px"><span class="muted" style="font-size:12.5px">Installed a tool just now?</span><button class="btn sm" id="s-recheck">Check again</button></div>` : ''}</div>`;
   } else {
     const rows = st.stores.map((s, i) => `<div class="sr"><span class="n">${esc(s.label)}</span><span class="p" title="${esc(s.dir)}">${esc(s.dir)}</span><span class="c">${s.count} note${s.count === 1 ? '' : 's'}${s.git ? ' · git' : ''}</span>
 <button class="btn sm q" data-rev="${esc(s.dir)}">Show</button>${i ? `<button class="btn sm q" data-rm="${esc(s.key)}">Remove</button>` : ''}</div>`).join('');
@@ -475,6 +476,13 @@ function bindSettings() {
     try { S.tools = await api.Disconnect(b.dataset.dis); await refresh(); render(); toast('Disconnected.'); } catch (e) { fail(e); }
   });
   document.querySelectorAll('.tt tr.click').forEach(tr => tr.onclick = () => { S.obCur = tr.dataset.id; render(); });
+  on('s-recheck', async () => {
+    const before = S.tools.filter(t => t.state !== 'missing').length;
+    try { S.tools = await api.Tools(); } catch (e) { return fail(e); }
+    const found = S.tools.filter(t => t.state !== 'missing').length - before;
+    if (!S.obCur) S.obCur = (S.tools.find(t => t.state !== 'missing') || {}).id;
+    render(); toast(found > 0 ? `Found ${found === 1 ? 'one new tool' : found + ' new tools'}.` : 'No new tools found.');
+  });
 }
 
 // ---------- library bindings
