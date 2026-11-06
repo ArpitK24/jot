@@ -39,11 +39,23 @@ Then create your memory store:
 jot init
 ```
 
-Then connect your agents with [docs/setup.md](docs/setup.md). For Claude Code:
+Then connect your agents. `jot setup` finds Claude Code, Cursor, Codex,
+Antigravity and Claude Desktop, shows the exact lines it will add to each
+config, and asks once before writing:
 
-```sh
-claude mcp add jot --scope user -e JOT_SOURCE=claude-code -- jot serve
 ```
+$ jot setup
+  Claude Code     will connect   ~/.claude.json
+  Cursor          connected      ~/.cursor/mcp.json
+  Codex           will connect   ~/.codex/config.toml
+  Antigravity     not installed  ~/.gemini/config/mcp_config.json
+  Claude Desktop  not installed  ~/Library/Application Support/Claude/claude_desktop_config.json
+  ...
+Connect 2 tools? [y/N]
+```
+
+Undo it with `jot setup --undo`. To configure a tool by hand, see
+[docs/setup.md](docs/setup.md).
 
 ## How it works
 
@@ -76,7 +88,7 @@ across project memories and then global ones.
 
 | Tool       | What it does                                         |
 |------------|------------------------------------------------------|
-| `remember` | Save one preference, decision, fact or note          |
+| `remember` | Save one preference, decision, fact or note. If a similar memory exists, it saves nothing and points to that one instead |
 | `recall`   | Search memory for what's relevant to the task        |
 | `update`   | Rewrite a memory that changed                        |
 | `forget`   | Delete a memory                                      |
@@ -88,11 +100,26 @@ across project memories and then global ones.
 jot init [--project]     jot search <query>     jot show <id>     jot log
 jot add [-k -t -p] text  jot ls [-k -t]         jot edit <id>     jot where
 jot serve                jot rm <id>            jot version
+jot setup [--undo]       jot dupes              jot merge <keep> <drop>
+```
+
+### Duplicates
+
+Agents often save the same thing twice in different words. `jot dupes` lists
+likely pairs, and `jot merge` keeps the newer one, adds any sentence only the
+other one had, and removes it in one commit. Git still has the original.
+
+```
+$ jot dupes
+ 66%  20261106-091200-a3f9  global  claude-code  Use pnpm for every JS project...
+      20261104-180511-7be0  global  cursor       Use pnpm for every JS project...
+      jot merge 20261106-091200-a3f9 20261104-180511-7be0
 ```
 
 ## Roadmap
 
-- [ ] Merge near-duplicate memories instead of piling them up
+- [x] Merge near-duplicate memories instead of piling them up
+- [x] `jot setup` to connect installed agents in one step
 - [ ] Expiry and review for stale facts
 - [ ] Optional local embeddings (Ollama) for semantic recall
 - [ ] `jot sync` through a git remote across machines

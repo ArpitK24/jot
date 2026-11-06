@@ -3,6 +3,13 @@
 Every agent runs the same command: `jot serve`. It speaks MCP over stdio.
 Set `JOT_SOURCE` so each memory records which agent wrote it.
 
+The quickest way is `jot setup`, which does all of the below for every tool
+it finds (`--dry-run` to preview, `--undo` to remove). The manual steps are
+here if you'd rather do it yourself, or use a tool it doesn't know yet.
+
+Desktop apps on macOS don't see your shell's PATH, so use the full path from
+`which jot` as the command. `jot setup` does this for you.
+
 ## Claude Code
 
 ```sh
