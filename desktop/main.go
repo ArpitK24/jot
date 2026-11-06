@@ -1,3 +1,5 @@
+//go:build !devserver
+
 // Command jot-desktop is the jot desktop app: a window over the same
 // Markdown memory store the jot CLI and MCP server use.
 package main
