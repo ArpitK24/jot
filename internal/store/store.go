@@ -101,6 +101,41 @@ func (s *Store) Update(id, body, kind string, tags []string) (*Memory, error) {
 	return m, nil
 }
 
+// Merge folds the memory dropID into keepID in one commit: keepID gets
+// the given body and tags, and dropID is removed. Both must live in this
+// store. Git history keeps the dropped memory.
+func (s *Store) Merge(keepID, dropID, body string, tags []string) (*Memory, error) {
+	if keepID == dropID {
+		return nil, errors.New("cannot merge a memory into itself")
+	}
+	m, err := s.Get(keepID)
+	if err != nil {
+		return nil, err
+	}
+	dp, err := s.path(dropID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(dp); err != nil {
+		return nil, ErrNotFound
+	}
+	if b := strings.TrimSpace(body); b != "" {
+		m.Body = b
+	}
+	if tags != nil {
+		m.Tags = NormalizeTags(tags)
+	}
+	m.Updated = s.now().UTC().Truncate(time.Second)
+	if err := s.write(m); err != nil {
+		return nil, err
+	}
+	if err := os.Remove(dp); err != nil {
+		return nil, err
+	}
+	s.commit(fmt.Sprintf("merge %s into %s: %s", dropID, m.ID, m.Title()))
+	return m, nil
+}
+
 // Delete removes a memory. Git history keeps it recoverable.
 func (s *Store) Delete(id string) error {
 	p, err := s.path(id)

@@ -90,3 +90,31 @@ func TestFindProjectDir(t *testing.T) {
 		t.Fatal("want project + global")
 	}
 }
+
+func TestMerge(t *testing.T) {
+	s := Open(t.TempDir(), "global")
+	a, err := s.Add("Use pnpm", KindPreference, []string{"js"}, "cursor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.Add("Use pnpm, pin it in package.json", KindPreference, []string{"node"}, "claude-code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Merge(a.ID, a.ID, "", nil); err == nil {
+		t.Fatal("self merge should fail")
+	}
+	m, err := s.Merge(b.ID, a.ID, "Use pnpm and pin it", []string{"js", "node"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Body != "Use pnpm and pin it" || len(m.Tags) != 2 {
+		t.Fatalf("merged = %+v", m)
+	}
+	if _, err := s.Get(a.ID); err != ErrNotFound {
+		t.Fatalf("dropped memory still there: %v", err)
+	}
+	if _, err := s.Merge(b.ID, "missing", "", nil); err != ErrNotFound {
+		t.Fatalf("missing drop: %v", err)
+	}
+}
