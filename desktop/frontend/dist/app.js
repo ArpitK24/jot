@@ -82,6 +82,10 @@ function ago(iso) {
   if (d.getFullYear() !== new Date().getFullYear()) opt.year = 'numeric';
   return d.toLocaleDateString('en-US', opt);
 }
+function agoLong(iso) {
+  const a = ago(iso);
+  return /^\d+[mhd]$/.test(a) ? a + ' ago' : a;
+}
 function stamp(iso) {
   const d = new Date(iso);
   if (isNaN(d)) return '';
@@ -93,8 +97,7 @@ function rest(body) {
   return i < 0 ? '' : body.slice(i + 1).trim();
 }
 function snippet(n) {
-  const r = rest(n.body).replace(/^\s*([-*+]|\d+\.)\s+/gm, '').replace(/[#>*_`]/g, '').replace(/\s+/g, ' ').trim();
-  return r || n.kind;
+  return rest(n.body).replace(/^\s*([-*+]|\d+\.)\s+/gm, '').replace(/[#>*_`]/g, '').replace(/\s+/g, ' ').trim();
 }
 const parseTags = s => s.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
 const shownTags = n => n.tags.filter(t => t !== 'pinned');
@@ -228,7 +231,7 @@ function sidebar() {
   }
   const tools = st.connected;
   h += `<div class="foot"><div class="txt"><div title="${esc(global.dir)}">${esc(tildeish(global.dir))}${global.git ? ' · git' : ''}</div>
-<div>${tools ? `<span class="g">●</span> ${tools} tool${tools > 1 ? 's' : ''} connected` : `<span class="r">●</span> no tools connected`}</div></div></div></div>`;
+<div class="tl" id="foot-tools" tabindex="0" title="Manage tools">${tools ? `<span class="g">●</span> ${tools} tool${tools > 1 ? 's' : ''} connected` : `<span class="r">●</span> no tools · <u>connect one</u>`}</div></div></div></div>`;
   return h;
 }
 function tildeish(p) {
@@ -245,10 +248,11 @@ function renderList() {
     return esc(s).replace(new RegExp(`(${terms.join('|')})`, 'gi'), '<mark>$1</mark>');
   };
   list.forEach(n => {
+    const sn = snippet(n);
     rows += `<div class="row${keyOf(n) === S.sel ? ' on' : ''}" tabindex="0" data-key="${esc(keyOf(n))}">
-<div class="rt">${n.pinned ? '<span class="dot"></span>' : ''}<span>${hl(n.title || 'Untitled')}</span></div>
-<div class="rs">${hl(snippet(n))}</div>
-<div class="rm">${esc(n.scope)} · ${esc(n.source || 'unknown')} · ${esc(ago(n.updated))}</div></div>`;
+<div class="rt${sn ? '' : ' full'}">${n.pinned ? '<span class="dot" title="Pinned"></span>' : ''}<span>${hl(n.title || 'Untitled')}</span></div>
+${sn ? `<div class="rs">${hl(sn)}</div>` : ''}
+<div class="rm"><span class="kd">${esc(n.kind)}</span>${esc(n.scope)} · ${esc(n.source || 'unknown')} · ${esc(agoLong(n.updated))}</div></div>`;
   });
   if (!list.length) rows = emptyList();
   const sort = S.query ? '<span class="sortw">Best match</span>' :
@@ -274,12 +278,12 @@ function renderDoc() {
     hist = `<table>${S.history.map(c => {
       const verb = c.subject.split(' ')[0];
       const label = { remember: 'created', update: 'edited', merge: 'merged', forget: 'deleted' }[verb] || c.subject;
-      return `<tr><td class="h">${esc(c.hash)}</td><td>${esc(label)}</td><td class="d">${esc(ago(c.date))}${/^\d+[mhd]$/.test(ago(c.date)) ? ' ago' : ''}</td></tr>`;
+      return `<tr><td class="h">${esc(c.hash)}</td><td>${esc(label)}</td><td class="d">${esc(agoLong(c.date))}</td></tr>`;
     }).join('')}</table>`;
   } else if (!S.state.gitFound) hist = `<div class="nogit">Install Git to keep a history of every change.</div>`;
   return `<div class="doc fade"><div class="dh"><span class="path" title="${esc(n.file)}">${esc(n.scope)} / ${esc(n.id)}.md</span><span class="sp"></span>
 <button class="btn q sm" id="pin">${n.pinned ? 'Unpin' : 'Pin'}</button><button class="btn q sm" id="edit">Edit</button><button class="btn q sm" id="reveal">Show file</button><button class="btn q sm danger" id="del">Delete</button></div>
-<div class="dscroll"><div class="dc selectable"><h1 class="serif">${esc(n.title || 'Untitled')}</h1><div class="fm">${fm}</div>
+<div class="dscroll"><div class="dc selectable"><h1 class="serif${(n.title || '').length > 56 ? ' long' : ''}">${esc(n.title || 'Untitled')}</h1><div class="fm">${fm}</div>
 <div class="pr">${md(body)}</div>${hist ? `<div class="hs"><div class="t">History</div>${hist}</div>` : ''}</div></div></div>`;
 }
 
@@ -495,6 +499,13 @@ function bindShell() {
   };
   $('#new').onclick = startNew;
   $('#gear').onclick = async () => { S.view = 'settings'; render(); };
+  const ft = $('#foot-tools');
+  if (ft) ft.onclick = ft.onkeydown = async ev => {
+    if (ev.type === 'keydown' && ev.key !== 'Enter') return;
+    S.view = 'settings'; S.settingsTab = 'tools';
+    try { S.tools = await api.Tools(); } catch (e) { fail(e); }
+    S.obCur = (S.tools.find(t => t.state !== 'missing') || {}).id; render();
+  };
   document.querySelectorAll('.side .ni[data-f]').forEach(el => el.onclick = async () => {
     S.view = 'library'; S.editing = null;
     S.filter = { type: el.dataset.f, key: el.dataset.k };

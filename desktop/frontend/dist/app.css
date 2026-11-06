@@ -99,6 +99,13 @@ select.field{padding-right:26px;appearance:none;background:#fff url("data:image/
 .rt span{overflow:hidden;text-overflow:ellipsis}
 .rs{color:var(--ink2);font-size:12.5px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rm{font:11.5px var(--mono);color:var(--ink3);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rt.full{white-space:normal;align-items:flex-start}
+.rt.full span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.45}
+.rt.full .dot{margin-top:7px}
+.rm .kd{display:inline-block;line-height:16px;font-size:11px;color:var(--ink2);margin-right:8px;padding:0 5px;border:1px solid var(--line);border-radius:4px;background:#fff}
+.foot .tl{cursor:pointer;border-radius:4px}
+.foot .tl:hover{color:var(--ink2)}
+.foot .tl u{text-decoration:none;color:var(--red)}
 .rs mark,.rt mark{background:#F7E1D9;color:inherit;border-radius:2px;padding:0 1px}
 .empty{padding:48px 28px;text-align:center;color:var(--ink3);font-size:13px;line-height:1.6}
 .empty h3{font-family:var(--serif);font-size:20px;font-weight:500;color:var(--ink);margin-bottom:6px}
@@ -228,3 +235,4 @@ ins{background:#DFEDDF;color:#2D5E38;text-decoration:none;padding:0 1px;border-r
 .toast a{color:#F2B9A6;cursor:pointer;font-weight:500}
 .fade{animation:fade .16s ease-out}
 @keyframes fade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+.dc h1.long{font-size:25px;line-height:1.25}
