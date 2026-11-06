@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "jot",
+  "outputfilename": "jot-desktop",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "",
+  "author": {
+    "name": "Arpit Kohale",
+    "email": "86291126+ArpitK24@users.noreply.github.com"
+  },
+  "info": {
+    "companyName": "jot",
+    "productName": "jot",
+    "copyright": "Copyright \u00a9 2026 Arpit Kohale. MIT License.",
+    "comments": "Shared memory for your AI tools.",
+    "productVersion": "0.3.0"
+  }
+}
