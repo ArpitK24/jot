@@ -9,6 +9,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/ArpitK24/jot/internal/dedup"
 	"github.com/ArpitK24/jot/internal/search"
 	"github.com/ArpitK24/jot/internal/store"
 )
@@ -83,7 +84,8 @@ func (s *Server) handle(req request) (any, *rpcError) {
 			"instructions": "jot is the user's shared memory across AI agents. " +
 				"Call recall at the start of a task to load relevant preferences and decisions. " +
 				"Call remember when the user states a durable preference, makes a decision, or corrects you. " +
-				"Keep each memory to one short, self-contained fact.",
+				"Keep each memory to one short, self-contained fact. " +
+				"If remember reports a similar memory, update that one instead of saving a second copy.",
 		}, nil
 	case "ping":
 		return map[string]any{}, nil
@@ -122,6 +124,7 @@ type args struct {
 	Scope  string   `json:"scope"`
 	Source string   `json:"source"`
 	Limit  int      `json:"limit"`
+	Force  bool     `json:"force"`
 }
 
 func (s *Server) call(name string, raw json.RawMessage) (string, error) {
@@ -136,6 +139,15 @@ func (s *Server) call(name string, raw json.RawMessage) (string, error) {
 		st, err := s.pick(a.Scope)
 		if err != nil {
 			return "", err
+		}
+		if !a.Force {
+			if sim := dedup.Similar(s.all(), a.Text, 0); len(sim) > 0 {
+				m := sim[0]
+				return fmt.Sprintf("Not saved: this looks like an existing memory.\n[%s] (%s, %s)\n%s\n\n"+
+					"If it adds or changes something, call update with id %s. "+
+					"If it really is a separate memory, call remember again with force: true.",
+					m.ID, m.Kind, m.Scope, m.Body, m.ID), nil
+			}
 		}
 		src := a.Source
 		if src == "" {
@@ -249,6 +261,7 @@ func tools() []map[string]any {
 				"tags":   tags,
 				"scope":  map[string]any{"type": "string", "enum": []string{"global", "project"}, "description": "global (default) for the user, project for this repo only."},
 				"source": str("Name of the agent saving this, e.g. claude-code."),
+				"force":  map[string]any{"type": "boolean", "description": "Save even if a similar memory exists. Only after checking it is not a duplicate."},
 			}, "text"),
 		},
 		{

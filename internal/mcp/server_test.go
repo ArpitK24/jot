@@ -75,3 +75,27 @@ func TestToolErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestRememberCatchesDuplicates(t *testing.T) {
+	s := &Server{Stores: []*store.Store{store.Open(t.TempDir(), "global")}, Source: "test"}
+	call := func(id int, args string) string {
+		return `{"jsonrpc":"2.0","id":` + string(rune('0'+id)) + `,"method":"tools/call","params":{"name":"remember","arguments":` + args + `}}`
+	}
+	res := rpc(t, s,
+		call(1, `{"text":"Use pnpm for every JS project. Never commit package-lock.json."}`),
+		call(2, `{"text":"Use pnpm for every JS project, and never commit package-lock.json files."}`),
+		call(3, `{"text":"Use pnpm for every JS project, and never commit package-lock.json files.","force":true}`),
+	)
+	if !strings.HasPrefix(text(res[0]), "Remembered") {
+		t.Fatalf("first: %s", text(res[0]))
+	}
+	if got := text(res[1]); !strings.HasPrefix(got, "Not saved") || !strings.Contains(got, "call update with id") {
+		t.Fatalf("duplicate: %s", got)
+	}
+	if !strings.HasPrefix(text(res[2]), "Remembered") {
+		t.Fatalf("forced: %s", text(res[2]))
+	}
+	if ms, _ := s.Stores[0].List(); len(ms) != 2 {
+		t.Fatalf("want 2 memories, got %d", len(ms))
+	}
+}
