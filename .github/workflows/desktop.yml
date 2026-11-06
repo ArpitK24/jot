@@ -1,0 +1,99 @@
+name: desktop
+
+# Builds the Windows desktop app and its installer as a test artifact.
+# Nothing here publishes a release.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp (default: 0.3.0-dev.<sha>)"
+        required: false
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - "packaging/windows/**"
+      - "internal/**"
+      - ".github/workflows/desktop.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: desktop/go.sum
+      - name: vet and test
+        working-directory: desktop
+        run: |
+          go vet .
+          go test ./...
+          GOOS=windows go vet .
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: desktop/go.sum
+      - name: version
+        run: |
+          v="${{ github.event.inputs.version }}"
+          [ -z "$v" ] && v="0.3.0-dev.${GITHUB_SHA::7}"
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          echo "NUMVERSION=$(echo "$v" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')" >> "$GITHUB_ENV"
+      - name: build CLI
+        run: |
+          mkdir -p out/cli
+          go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o out/cli/jot.exe ./cmd/jot
+          cp README.md LICENSE out/cli/
+          out/cli/jot.exe version
+      - name: build desktop app
+        working-directory: desktop
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
+          wails build -platform windows/amd64 -skipbindings -trimpath -ldflags "-X main.version=$VERSION" -o jot-desktop.exe
+          ls -la build/bin
+      - name: build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc /DAppVersion=$env:VERSION /DNumVersion=$env:NUMVERSION /DArch=x64 /DSourceDir="$pwd\out\cli" /DDesktopExe="$pwd\desktop\build\bin\jot-desktop.exe" /DOutputDir="$pwd\dist" packaging\windows\jot.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist
+      - name: smoke test installer
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist\*-setup.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CURRENTUSER","/TASKS=addtopath" -Wait
+          $dir = "$env:LOCALAPPDATA\Programs\jot"
+          Get-ChildItem $dir
+          if (-not (Test-Path "$dir\jot-desktop.exe")) { throw "desktop app missing" }
+          & "$dir\jot.exe" version
+          $path = (Get-ItemProperty HKCU:\Environment).Path
+          if ($path -notlike "*$dir*") { throw "jot not added to user PATH" }
+          if (-not (Test-Path "$env:USERPROFILE\.jot")) { throw "store not created" }
+          Start-Process "$dir\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -Wait
+          Start-Sleep -Seconds 3
+          $path = (Get-ItemProperty HKCU:\Environment).Path
+          if ($path -like "*$dir*") { throw "uninstall left jot on PATH" }
+          Write-Host "install and uninstall OK"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jot-windows-x64-setup
+          path: dist/*-setup.exe
+          if-no-files-found: error
