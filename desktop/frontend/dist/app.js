@@ -205,7 +205,8 @@ function render() {
 
 function topbar() {
   return `<div class="tb">${isMac() ? '<span class="mac-pad"></span>' : ''}<span class="mark">jot<b>.</b></span><span class="sp"></span>
-<label class="srch">${ICON.search}<input id="q" placeholder="Search notes" value="${esc(S.query)}" spellcheck="false" autocomplete="off"><span class="key">${modKey()} K</span></label>
+<label class="srch">${ICON.search}<input id="q" placeholder="Search notes" value="${esc(S.query)}" spellcheck="false" autocomplete="off"><span class="key" title="Press / to search">/</span></label>
+<button class="btn q cmdk" id="cmdk" title="Commands and quick jump">${modKey()} K</button>
 <button class="btn" id="new">New note</button>
 <button class="iconbtn" id="gear" title="Settings">${ICON.gear}</button></div>`;
 }
@@ -506,6 +507,7 @@ function bindShell() {
     if (ev.key === 'ArrowDown' || ev.key === 'Enter') { ev.preventDefault(); const r = $('.row.on') || $('.row'); if (r) r.focus(); }
   };
   $('#new').onclick = startNew;
+  $('#cmdk').onclick = () => openPalette();
   $('#gear').onclick = async () => { S.view = 'settings'; render(); };
   const ft = $('#foot-tools');
   if (ft) ft.onclick = ft.onkeydown = async ev => {
@@ -643,12 +645,95 @@ function bindReview() {
   document.querySelectorAll('.ur').forEach(r => r.onclick = () => { S.reviewIndex = +r.dataset.i; render(); });
 }
 
+
+// ---------- command palette (Ctrl/⌘ K): jump to any note or run an action
+
+const pal = { open: false, q: '', items: [], i: 0, t: 0 };
+
+function palActions() {
+  const go = (view, extra = {}) => async () => { Object.assign(S, { editing: null }, extra); S.view = view; if (view === 'library') { const v = visible(); if (!v.find(n => keyOf(n) === S.sel)) S.sel = v[0] ? keyOf(v[0]) : null; await loadHistory(); } render(); };
+  const toolsTab = async () => { S.view = 'settings'; S.settingsTab = 'tools'; try { S.tools = await api.Tools(); } catch (e) { fail(e); } S.obCur = (S.tools.find(t => t.state !== 'missing') || {}).id; render(); };
+  const a = [
+    { label: 'New note', hint: modKey() + ' N', run: () => startNew() },
+    S.dupes.length ? { label: `Review duplicates`, hint: `${S.dupes.length} waiting`, run: go('review', { reviewIndex: 0 }) } : null,
+    { label: 'All notes', run: go('library', { filter: { type: 'all' }, query: '', hits: null }) },
+    { label: 'Pinned notes', run: go('library', { filter: { type: 'pinned' }, query: '', hits: null }) },
+    { label: 'Connect AI tools', hint: S.state.connected ? `${S.state.connected} connected` : 'none yet', run: toolsTab },
+    { label: 'Add project folder', run: () => $('#addproj') && $('#addproj').click() },
+    { label: 'Settings', hint: modKey() + ' ,', run: go('settings', { settingsTab: 'general' }) },
+  ].filter(Boolean);
+  S.state.stores.slice(1).forEach(st => a.push({ label: `Open ${st.label}`, hint: `${st.count} notes`, run: go('library', { filter: { type: 'store', key: st.key }, query: '', hits: null }) }));
+  return a.map(x => ({ ...x, kind: 'action' }));
+}
+
+async function palCompute() {
+  const q = pal.q.trim().toLowerCase();
+  const acts = palActions().filter(a => !q || a.label.toLowerCase().includes(q));
+  let notes;
+  if (q) {
+    const hits = (await api.Search(pal.q).catch(() => [])) || [];
+    notes = hits.slice(0, 7).map(h => S.notes.find(n => keyOf(n) === keyOf(h))).filter(Boolean);
+  } else {
+    notes = [...S.notes].sort((a, b) => new Date(b.updated) - new Date(a.updated)).slice(0, 5);
+  }
+  const ni = notes.map(n => ({ kind: 'note', label: n.title || 'Untitled', hint: `${n.scope} · ${agoLong(n.updated)}`, n,
+    run: async () => { S.view = 'library'; S.editing = null; S.query = ''; S.hits = null; S.filter = { type: 'all' }; S.sel = keyOf(n); await loadHistory(); render(); const el = document.querySelector(`.row[data-key="${CSS.escape(keyOf(n))}"]`); if (el) el.scrollIntoView({ block: 'nearest' }); } }));
+  pal.items = q ? [...ni, ...acts] : [...acts, ...ni];
+  pal.i = Math.min(pal.i, Math.max(0, pal.items.length - 1));
+}
+
+function palRender() {
+  const box = $('#pal'); if (!box) return;
+  const q = pal.q.trim();
+  const hl = t => { if (!q) return esc(t); const i = t.toLowerCase().indexOf(q.toLowerCase()); return i < 0 ? esc(t) : esc(t.slice(0, i)) + '<mark>' + esc(t.slice(i, i + q.length)) + '</mark>' + esc(t.slice(i + q.length)); };
+  let html = '', last = '';
+  pal.items.forEach((it, j) => {
+    const grp = it.kind === 'note' ? (q ? 'Notes' : 'Recent notes') : 'Actions';
+    if (grp !== last) { html += `<div class="pg">${grp}</div>`; last = grp; }
+    html += `<div class="pi${j === pal.i ? ' on' : ''}" data-j="${j}"><span class="pl">${it.kind === 'note' ? ICON.all : '<span class="arw">→</span>'}<span>${hl(it.label)}</span></span><span class="ph">${esc(it.hint || '')}</span></div>`;
+  });
+  if (!pal.items.length) html = `<div class="pe">Nothing matches “${esc(q)}”.</div>`;
+  $('.pr-list', box).innerHTML = html;
+  box.querySelectorAll('.pi').forEach(el => {
+    el.onmousemove = () => { if (pal.i !== +el.dataset.j) { pal.i = +el.dataset.j; palRender(); } };
+    el.onclick = () => palRun(+el.dataset.j);
+  });
+  const on = $('.pi.on', box); if (on) on.scrollIntoView({ block: 'nearest' });
+}
+
+async function openPalette() {
+  if (S.view === 'onboarding' || pal.open) return;
+  pal.open = true; pal.q = ''; pal.i = 0;
+  const box = document.createElement('div');
+  box.id = 'pal'; box.className = 'pal-wrap';
+  box.innerHTML = `<div class="pal fade" role="dialog" aria-label="Commands"><div class="pin">${ICON.search}<input id="pal-q" placeholder="Jump to a note or run a command" spellcheck="false" autocomplete="off"><span class="key">Esc</span></div><div class="pr-list"></div>
+<div class="pf"><span><span class="key">↑</span><span class="key">↓</span> move</span><span><span class="key">↵</span> open</span></div></div>`;
+  document.body.appendChild(box);
+  box.onmousedown = ev => { if (ev.target === box) closePalette(); };
+  const inp = $('#pal-q');
+  inp.oninput = () => { pal.q = inp.value; pal.i = 0; clearTimeout(pal.t); pal.t = setTimeout(async () => { await palCompute(); palRender(); }, 70); };
+  inp.onkeydown = ev => {
+    if (ev.key === 'Escape') { ev.preventDefault(); closePalette(); }
+    else if (ev.key === 'ArrowDown') { ev.preventDefault(); pal.i = (pal.i + 1) % Math.max(1, pal.items.length); palRender(); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); pal.i = (pal.i - 1 + pal.items.length) % Math.max(1, pal.items.length); palRender(); }
+    else if (ev.key === 'Enter') { ev.preventDefault(); palRun(pal.i); }
+  };
+  inp.focus();
+  await palCompute(); palRender();
+}
+function closePalette() { pal.open = false; const b = $('#pal'); if (b) b.remove(); }
+async function palRun(j) { const it = pal.items[j]; if (!it) return; closePalette(); try { await it.run(); } catch (e) { fail(e); } }
+
 // ---------- keyboard
 
 document.addEventListener('keydown', async ev => {
   const mod = ev.ctrlKey || ev.metaKey;
   if (S.view === 'onboarding') return;
-  if (mod && ev.key.toLowerCase() === 'k') { ev.preventDefault(); if (S.view === 'settings') { S.view = 'library'; render(); } const q = $('#q'); if (q) { q.focus(); q.select(); } }
+  if (mod && ev.key.toLowerCase() === 'k') { ev.preventDefault(); if (!S.editing || await leaveEditor()) openPalette(); }
+  else if (pal.open) return;
+  else if (ev.key === '/' && !mod && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) {
+    ev.preventDefault(); if (S.view === 'settings') { S.view = 'library'; render(); } const q = $('#q'); if (q) { q.focus(); q.select(); }
+  }
   else if (mod && ev.key.toLowerCase() === 'n') { ev.preventDefault(); if (!S.editing || await leaveEditor()) startNew(); }
   else if (mod && ev.key.toLowerCase() === 's' && S.editing) { ev.preventDefault(); $('#e-save').click(); }
   else if (mod && ev.key === ',') { ev.preventDefault(); S.view = 'settings'; render(); }

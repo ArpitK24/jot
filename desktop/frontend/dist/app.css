@@ -236,3 +236,23 @@ ins{background:#DFEDDF;color:#2D5E38;text-decoration:none;padding:0 1px;border-r
 .fade{animation:fade .16s ease-out}
 @keyframes fade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
 .dc h1.long{font-size:25px;line-height:1.25}
+.cmdk{font:500 11.5px var(--mono);color:var(--ink3);height:30px;padding:0 9px;border:1px solid var(--line2);background:#fff;border-radius:6px}
+.cmdk:hover{color:var(--ink)}
+.pal-wrap{position:fixed;inset:0;background:rgba(29,28,26,.18);display:flex;justify-content:center;align-items:flex-start;padding-top:12vh;z-index:50}
+.pal{width:600px;max-width:calc(100vw - 48px);background:var(--paper);border:1px solid var(--line2);border-radius:10px;box-shadow:0 24px 60px rgba(40,34,24,.22),0 2px 6px rgba(40,34,24,.08);overflow:hidden;display:flex;flex-direction:column}
+.pal .pin{display:flex;align-items:center;gap:10px;padding:0 14px;height:50px;border-bottom:1px solid var(--line);color:var(--ink3)}
+.pal .pin input{flex:1;border:0;outline:0;background:transparent;font:15px var(--sans);color:var(--ink)}
+.pr-list{max-height:380px;overflow:auto;padding:6px}
+.pg{font-size:11px;font-weight:500;color:var(--ink3);padding:10px 10px 4px}
+.pi{display:flex;align-items:center;gap:12px;height:36px;padding:0 10px;border-radius:6px;cursor:pointer}
+.pi.on{background:var(--sel)}
+.pi .pl{display:flex;align-items:center;gap:10px;flex:1;min-width:0;font-size:13.5px}
+.pi .pl span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pi .pl .ico{color:var(--ink3);flex-shrink:0}
+.pi .arw{width:16px;text-align:center;color:var(--ink3);font-family:var(--mono)}
+.pi.on .arw{color:var(--red)}
+.pi .ph{font:11.5px var(--mono);color:var(--ink3);white-space:nowrap}
+.pi mark{background:#F7E1D9;color:inherit;border-radius:2px}
+.pe{padding:22px 12px;color:var(--ink3);font-size:13px;text-align:center}
+.pf{display:flex;gap:16px;padding:8px 14px;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink3);background:var(--side)}
+.pf .key{margin-right:3px}
