@@ -23,11 +23,13 @@ $ jot search "package manager"
 
 ## Install
 
-**Windows desktop app:** download `jot-0.3.0-windows-x64-setup.exe` from
-[jot desktop 0.3.0](https://github.com/ArpitK24/jot/releases/tag/desktop/v0.3.0).
+**Windows desktop app:** download the newest `jot-<version>-windows-x64-setup.exe`
+from a `jot desktop` release on the [Releases](https://github.com/ArpitK24/jot/releases) page.
 It installs the app and the `jot` CLI for your user, adds `jot` to PATH and
 connects your AI tools. The build is unsigned, so SmartScreen may ask you to
-click *More info*, then *Run anyway*.
+click *More info*, then *Run anyway*. From 0.3.1 the app updates itself: it
+checks GitHub when it opens and installs a new version in one click, after
+checking its SHA-256. Light, dark or system appearance is in Settings.
 
 **CLI only:** download a binary for macOS, Linux or Windows from
 [Releases](https://github.com/ArpitK24/jot/releases), or build with Go 1.23+:
