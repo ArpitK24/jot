@@ -3,12 +3,18 @@
 // Agents often save the same fact twice in slightly different words.
 // Similarity here is lexical: the share of meaningful words two memories
 // have in common, using the same tokenizer as search. It needs no model
-// and catches the common case of near-identical notes.
+// and catches the common case of near-identical notes. When embeddings are
+// on, the *With variants also flag paraphrases: notes whose meaning is
+// nearly the same even though the words differ.
 package dedup
 
 import (
+	"context"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/ArpitK24/jot/internal/embed"
 
 	"github.com/ArpitK24/jot/internal/search"
 	"github.com/ArpitK24/jot/internal/store"
@@ -16,6 +22,10 @@ import (
 
 // Threshold is the default score above which two memories count as duplicates.
 const Threshold = 0.6
+
+// SemanticThreshold is the default cosine above which two memories count
+// as saying the same thing in other words.
+const SemanticThreshold = 0.9
 
 // minShared stops very short notes ("Use Go", "Use Rust") from matching
 // on one or two words.
@@ -26,6 +36,7 @@ const minShared = 3
 type Pair struct {
 	Keep, Drop *store.Memory
 	Score      float64
+	Semantic   bool // flagged by meaning rather than shared words
 }
 
 // Similarity scores how much a and b overlap, from 0 to 1. It averages
@@ -54,21 +65,34 @@ func Similarity(a, b string) float64 {
 // Pairs returns every pair of memories scoring at least threshold, best
 // first. Each memory appears in at most one pair, its strongest.
 func Pairs(mems []*store.Memory, threshold float64) []Pair {
+	p, _ := PairsWith(mems, threshold, nil)
+	return p
+}
+
+// PairsWith is Pairs plus paraphrase detection through ix. When ix is nil
+// or the model can't be reached, it returns the lexical pairs and the reason.
+func PairsWith(mems []*store.Memory, threshold float64, ix *embed.Index) ([]Pair, error) {
 	if threshold <= 0 {
 		threshold = Threshold
 	}
+	vecs, err := vectors(mems, ix)
 	var all []Pair
 	for i := 0; i < len(mems); i++ {
 		for j := i + 1; j < len(mems); j++ {
-			s := Similarity(mems[i].Body, mems[j].Body)
-			if s < threshold {
+			s, sem := Similarity(mems[i].Body, mems[j].Body), false
+			if s < threshold && vecs != nil {
+				if c := embed.Cosine(vecs[i], vecs[j]); c >= SemanticThreshold {
+					s, sem = c, true
+				}
+			}
+			if s < threshold && !sem {
 				continue
 			}
 			keep, drop := mems[i], mems[j]
 			if drop.Updated.After(keep.Updated) {
 				keep, drop = drop, keep
 			}
-			all = append(all, Pair{Keep: keep, Drop: drop, Score: s})
+			all = append(all, Pair{Keep: keep, Drop: drop, Score: s, Semantic: sem})
 		}
 	}
 	sort.SliceStable(all, func(a, b int) bool { return all[a].Score > all[b].Score })
@@ -81,12 +105,31 @@ func Pairs(mems []*store.Memory, threshold float64) []Pair {
 		used[p.Keep], used[p.Drop] = true, true
 		out = append(out, p)
 	}
-	return out
+	return out, err
+}
+
+func vectors(mems []*store.Memory, ix *embed.Index) ([][]float32, error) {
+	if ix == nil || len(mems) < 2 {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	texts := make([]string, len(mems))
+	for i, m := range mems {
+		texts[i] = m.Body
+	}
+	return ix.Documents(ctx, texts)
 }
 
 // Similar returns existing memories that look like a duplicate of body,
 // best first.
 func Similar(mems []*store.Memory, body string, threshold float64) []*store.Memory {
+	out, _ := SimilarWith(mems, body, threshold, nil)
+	return out
+}
+
+// SimilarWith is Similar plus paraphrase detection through ix.
+func SimilarWith(mems []*store.Memory, body string, threshold float64, ix *embed.Index) ([]*store.Memory, error) {
 	if threshold <= 0 {
 		threshold = Threshold
 	}
@@ -94,9 +137,20 @@ func Similar(mems []*store.Memory, body string, threshold float64) []*store.Memo
 		m *store.Memory
 		s float64
 	}
+	var vecs [][]float32
+	var err error
+	if ix != nil && len(mems) > 0 {
+		vecs, err = vectors(append([]*store.Memory{{Body: body}}, mems...), ix)
+	}
 	var hits []hit
-	for _, m := range mems {
-		if s := Similarity(m.Body, body); s >= threshold {
+	for i, m := range mems {
+		s := Similarity(m.Body, body)
+		if s < threshold && vecs != nil {
+			if c := embed.Cosine(vecs[0], vecs[i+1]); c >= SemanticThreshold {
+				s = c
+			}
+		}
+		if s >= threshold || (vecs != nil && s >= SemanticThreshold) {
 			hits = append(hits, hit{m, s})
 		}
 	}
@@ -105,7 +159,7 @@ func Similar(mems []*store.Memory, body string, threshold float64) []*store.Memo
 	for i, h := range hits {
 		out[i] = h.m
 	}
-	return out
+	return out, err
 }
 
 // MergeBody keeps all of keep and adds each sentence of drop that keep

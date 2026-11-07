@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ArpitK24/jot/internal/embed"
+	"github.com/ArpitK24/jot/internal/embed/embedtest"
 	"github.com/ArpitK24/jot/internal/store"
 )
 
@@ -66,5 +68,35 @@ func TestMergeTags(t *testing.T) {
 	got := MergeTags([]string{"js", "tooling"}, []string{"JS", "node"})
 	if strings.Join(got, ",") != "js,node,tooling" {
 		t.Errorf("tags = %v", got)
+	}
+}
+
+func TestParaphrases(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", d)
+	t.Setenv("HOME", d)
+	t.Setenv("LocalAppData", d)
+	srv := embedtest.Server(nil)
+	defer srv.Close()
+	now := time.Now()
+	mems := []*store.Memory{
+		{ID: "a", Body: "Login uses a JWT token.", Updated: now},
+		{ID: "b", Body: "Users sign in with an auth session.", Updated: now.Add(-time.Hour)},
+		{ID: "c", Body: "Package manager is pnpm, not npm.", Updated: now},
+	}
+	if p := Pairs(mems, 0); len(p) != 0 {
+		t.Fatalf("lexical dedup should miss the paraphrase, got %d", len(p))
+	}
+	ix := embed.Open(embed.Config{Provider: "ollama", URL: srv.URL})
+	p, err := PairsWith(mems, 0, ix)
+	if err != nil || len(p) != 1 || !p[0].Semantic || p[0].Keep.ID != "a" || p[0].Drop.ID != "b" {
+		t.Fatalf("got %+v, %v", p, err)
+	}
+	sim, err := SimilarWith(mems, "Sign-in is handled by a JWT session.", 0, ix)
+	if err != nil || len(sim) == 0 || (sim[0].ID != "a" && sim[0].ID != "b") {
+		t.Fatalf("remember guard missed paraphrase: %v %v", sim, err)
+	}
+	if sim, _ := SimilarWith(mems, "Deploy on merge to main.", 0, ix); len(sim) != 0 {
+		t.Fatalf("unrelated note flagged: %v", sim[0].ID)
 	}
 }
