@@ -42,10 +42,18 @@ func (w *devWindow) ChooseProject() (string, error) {
 	return dir, w.app.AddProjectDir(dir)
 }
 func (w *devWindow) Confirm(title, message string) bool { return true }
+func (w *devWindow) ApplyTheme(string)                  {}
+func (w *devWindow) Quit()                              { log.Print("quit requested") }
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8765", "listen address")
 	flag.Parse()
+	if v := os.Getenv("JOT_DEV_VERSION"); v != "" {
+		version = v // preview the update banner against a pretend build
+	}
+	if u := os.Getenv("JOT_DEV_RELEASES"); u != "" {
+		releasesURL = u
+	}
 	app := NewApp(prefsPath())
 	targets := []reflect.Value{reflect.ValueOf(app), reflect.ValueOf(&devWindow{app})}
 	dist, _ := fs.Sub(os.DirFS("."), "frontend/dist")
