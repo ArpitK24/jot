@@ -23,7 +23,13 @@ $ jot search "package manager"
 
 ## Install
 
-Download a binary for macOS, Linux or Windows from
+**Windows desktop app:** download `jot-0.3.0-windows-x64-setup.exe` from
+[jot desktop 0.3.0](https://github.com/ArpitK24/jot/releases/tag/desktop/v0.3.0).
+It installs the app and the `jot` CLI for your user, adds `jot` to PATH and
+connects your AI tools. The build is unsigned, so SmartScreen may ask you to
+click *More info*, then *Run anyway*.
+
+**CLI only:** download a binary for macOS, Linux or Windows from
 [Releases](https://github.com/ArpitK24/jot/releases), or build with Go 1.23+:
 
 ```sh
@@ -120,6 +126,7 @@ $ jot dupes
 
 - [x] Merge near-duplicate memories instead of piling them up
 - [x] `jot setup` to connect installed agents in one step
+- [x] Desktop app for Windows (macOS and Linux next)
 - [ ] Expiry and review for stale facts
 - [ ] Optional local embeddings (Ollama) for semantic recall
 - [ ] `jot sync` through a git remote across machines
