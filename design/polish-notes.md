@@ -40,6 +40,8 @@ tagged, released or merged.
 ## Tested
 
 - `go vet ./...`, `go test ./...` before every commit; desktop module vet + test.
+- CI (ubuntu, macOS, Windows) green on the PR. The doctor and roots tests run on
+  Windows there, so the Go side is covered on Windows; the installer is not.
 - `install.sh` against the real v0.3.0 and v0.2.0 releases (linux/arm64), plus a
   bad-version run; `go test ./scripts` runs it against a fake releases API
   (desktop tag first, checksum mismatch refused).
