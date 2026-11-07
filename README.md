@@ -62,7 +62,15 @@ $ jot setup
 Connect 2 tools? [y/N]
 ```
 
-Undo it with `jot setup --undo`. To configure a tool by hand, see
+You never have to tell an agent to "check jot". jot's MCP server tells each
+agent to recall before a task and remember lasting preferences. Not every tool
+passes that on to its model, so `jot setup` also adds a short marked block to
+the tool's own instructions file, which the agent reads at the start of every
+session: `~/.claude/CLAUDE.md` (Claude Code), `~/.codex/AGENTS.md` (Codex) and
+`~/.gemini/GEMINI.md` (Antigravity). Cursor and Claude Desktop rely on the
+server's instructions and tool descriptions.
+
+Undo both with `jot setup --undo`. To configure a tool by hand, see
 [docs/setup.md](docs/setup.md).
 
 ## How it works
