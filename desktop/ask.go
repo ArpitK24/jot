@@ -327,6 +327,7 @@ type Models struct {
 	Last      string        `json:"last"`      // the model the user picked last
 	Providers []chat.Status `json:"providers"` // each provider's state
 	Saved     string        `json:"saved"`     // the default saved in config, if any
+	KeysFile  string        `json:"keysFile"`  // where API keys are kept
 	OpenAI    struct {
 		Models []string `json:"models"` // allow-list for the picker
 	} `json:"openai"`
@@ -337,7 +338,7 @@ func (a *App) ChatModels() Models {
 	reg := a.registry()
 	ctx := context.Background()
 	sts := reg.CheckAll(ctx)
-	m := Models{Options: []ModelOption{}, Providers: sts, Last: a.prefs.AskModel, Saved: reg.Config.Default}
+	m := Models{Options: []ModelOption{}, Providers: sts, Last: a.prefs.AskModel, Saved: chat.ReadConfig(store.GlobalDir()).Default, KeysFile: chat.KeysPath()}
 	m.OpenAI.Models = reg.Config.OpenAI.Models
 	for _, st := range sts {
 		for _, name := range st.Models {

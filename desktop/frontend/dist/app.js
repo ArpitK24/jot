@@ -13,6 +13,8 @@ const ICON = {
   tools: '<svg class="ico" viewBox="0 0 24 24"><path d="M9 7H5v10h4M15 7h4v10h-4M8 12h8"/></svg>',
   disk: '<svg class="ico" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg>',
   back: '<svg class="ico" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>',
+  ask: '<svg class="ico" viewBox="0 0 24 24"><path d="M5 5h14v10H10l-4 4v-4H5z"/><path d="M9 9.5h6M9 12h4"/></svg>',
+  chip: '<svg class="ico" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg>',
   check: '<svg class="ico" viewBox="0 0 24 24" style="width:22px;height:22px"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
 };
 const KINDS = ['note', 'fact', 'preference', 'decision'];
@@ -43,7 +45,7 @@ function waitForBackend(ms = 4000) {
 
 const S = {
   state: null, notes: [], tools: [], dupes: [],
-  view: 'library',          // library | review | settings | onboarding
+  view: 'library',          // library | ask | review | settings | onboarding
   filter: { type: 'all' },  // all | pinned | store:<key> | source:<name>
   query: '', hits: null,
   sort: 'updated',
@@ -56,6 +58,10 @@ const S = {
   update: null,             // newest release when it's newer than this build
   upd: null,                // last result of a manual check, for Settings
   autoCheck: true,
+  // Ask
+  chats: [], chat: null, chatSel: null, chatHits: null, askQuery: '',
+  models: null, askModel: '', streaming: null, draft: '', askErr: null, suggest: null, openUsed: null,
+  backView: 'library',      // where Settings' back button returns
 };
 const keyOf = n => n.store + '\u001f' + n.id;
 const isMac = () => (S.state && S.state.os === 'darwin');
@@ -120,7 +126,8 @@ function md(src) {
       .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
       .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
       .replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[+i]}</code>`);
-  };  while (i < lines.length) {
+  };
+  while (i < lines.length) {
     const l = lines[i];
     if (/^```/.test(l)) {
       const buf = []; i++;
@@ -218,8 +225,9 @@ function bindUpdateBar() {
 // ---------- data
 
 async function refresh(opts = {}) {
-  const [state, notes, dupes] = await Promise.all([api.State(), api.Notes(), api.Duplicates()]);
-  S.state = state; S.notes = notes || []; S.dupes = dupes || [];
+  const [state, notes, dupes, chats] = await Promise.all([api.State(), api.Notes(), api.Duplicates(), api.Chats().catch(() => [])]);
+  S.state = state; S.notes = notes || []; S.dupes = dupes || []; S.chats = chats || [];
+  if (S.askQuery) S.chatHits = (await api.SearchChats(S.askQuery).catch(() => [])) || [];
   if (opts.tools) S.tools = (await api.Tools()) || [];
   if (S.query) S.hits = await api.Search(S.query);
   if (S.reviewIndex >= S.dupes.length) S.reviewIndex = Math.max(0, S.dupes.length - 1);
@@ -256,6 +264,13 @@ function render() {
   const app = $('#app');
   if (S.view === 'onboarding') { app.innerHTML = renderOnboarding(); bindOnboarding(); return; }
   if (S.view === 'settings') { app.innerHTML = renderSettings(); bindSettings(); return; }
+  if (S.view === 'ask') {
+    const keep = $('#chat-scroll') ? $('#chat-scroll').scrollTop : null;
+    app.innerHTML = `${topbar()}${updateBar()}<div class="main">${sidebar()}${renderChatList()}${renderConversation()}</div>`;
+    bindShell(); bindUpdateBar(); bindAsk();
+    if (keep !== null && $('#chat-scroll')) $('#chat-scroll').scrollTop = keep;
+    return;
+  }
   app.innerHTML = `${topbar()}${updateBar()}<div class="main">${sidebar()}${S.view === 'review' ? renderReview() : renderList() + renderDoc()}</div>`;
   bindShell(); bindUpdateBar();
   if (S.view === 'review') bindReview(); else { bindList(); bindDoc(); }
@@ -263,7 +278,7 @@ function render() {
 
 function topbar() {
   return `<div class="tb">${isMac() ? '<span class="mac-pad"></span>' : ''}<span class="mark">jot<b>.</b></span><span class="sp"></span>
-<label class="srch">${ICON.search}<input id="q" placeholder="Search notes" value="${esc(S.query)}" spellcheck="false" autocomplete="off"><span class="key" title="Press / to search">/</span></label>
+<label class="srch">${ICON.search}<input id="q" placeholder="${S.view === 'ask' ? 'Search chats' : 'Search notes'}" value="${esc(S.view === 'ask' ? S.askQuery : S.query)}" spellcheck="false" autocomplete="off"><span class="key" title="Press / to search">/</span></label>
 <button class="btn q cmdk" id="cmdk" title="Commands and quick jump">${modKey()} K</button>
 <button class="btn" id="new">New note</button>
 <button class="iconbtn" id="gear" title="Settings">${ICON.gear}</button></div>`;
@@ -276,7 +291,9 @@ function sidebar() {
   const sources = {};
   S.notes.forEach(n => { const k = n.source || 'unknown'; sources[k] = (sources[k] || 0) + 1; });
   const st = S.state, global = st.stores[0];
-  let h = `<div class="side"><div class="sh">Library</div>`;
+  let h = `<div class="side">`;
+  h += ni('Ask', S.chats.length || '', 'data-v="ask"', S.view === 'ask', 'ask', ICON.ask);
+  h += `<div class="sh">Library</div>`;
   h += ni('All notes', S.notes.length, 'data-f="all"', lib && f.type === 'all', '', ICON.all);
   h += ni('Pinned', S.notes.filter(n => n.pinned).length, 'data-f="pinned"', lib && f.type === 'pinned', '', ICON.pin);
   h += ni('Needs review', S.dupes.length || '', 'data-v="review"', S.view === 'review', '', ICON.rev, S.dupes.length > 0);
@@ -503,6 +520,8 @@ function renderSettings() {
     const diff = cur && cur.snippet ? `<div class="diff"><div class="h"><span>${esc(cur.config)}</span><span>${cur.state === 'connected' ? 'current entry' : '+' + cur.lines + ' lines'}</span></div><pre>${esc(cur.snippet).split('\n').map(l => `<span class="add">${cur.state === 'connected' ? '  ' : '+ '}${l}</span>`).join('\n')}</pre></div>${rulesDiff(cur)}` : '';
     body = `<div class="form" style="display:block"><p class="muted" style="margin-bottom:16px;font-size:13px;line-height:1.55">jot adds one <span class="mono">jot</span> entry to each tool’s MCP config, and a short marked block to its instructions file (CLAUDE.md, AGENTS.md, GEMINI.md) so the agent checks jot without being asked. The first time it edits a file, it saves the original as <span class="mono">.jot-backup</span>. Restart a tool after connecting it.</p><table class="tt">${rows}</table>${diff}
 ${S.tools.some(t => t.state === 'missing') ? `<div class="line" style="margin-top:14px;gap:12px"><span class="muted" style="font-size:12.5px">Installed a tool just now?</span><button class="btn sm" id="s-recheck">Check again</button></div>` : ''}</div>`;
+  } else if (S.settingsTab === 'models') {
+    body = renderModelsTab();
   } else {
     const rows = st.stores.map((s, i) => `<div class="sr"><span class="n">${esc(s.label)}</span><span class="p" title="${esc(s.dir)}">${esc(s.dir)}</span><span class="c">${s.count} note${s.count === 1 ? '' : 's'}${s.git ? ' · git' : ''}</span>
 <button class="btn sm q" data-rev="${esc(s.dir)}">Show</button>${i ? `<button class="btn sm q" data-rm="${esc(s.key)}">Remove</button>` : ''}</div>`).join('');
@@ -515,7 +534,7 @@ ${S.tools.some(t => t.state === 'missing') ? `<div class="line" style="margin-to
 </div>`;
   }
   return `<div class="tb"><button class="iconbtn" id="s-back" title="Back">${ICON.back}</button><span class="mark">jot<b>.</b></span><span class="sp"></span><span class="muted" style="font-size:12px">Settings</span></div>
-<div class="st-wrap"><div class="seg">${tab('general', ICON.gear, 'General')}${tab('tools', ICON.tools, 'Tools')}${tab('storage', ICON.disk, 'Storage')}</div><div class="st-body fade">${body}</div></div>`;
+<div class="st-wrap"><div class="seg">${tab('general', ICON.gear, 'General')}${tab('tools', ICON.tools, 'Tools')}${tab('models', ICON.chip, 'Models')}${tab('storage', ICON.disk, 'Storage')}</div><div class="st-body fade">${body}</div></div>`;
 }
 
 function updateRow() {
@@ -546,10 +565,12 @@ function semanticRow() {
 }
 
 function bindSettings() {
-  $('#s-back').onclick = () => { S.view = 'library'; render(); };
+  $('#s-back').onclick = () => { S.view = S.backView === 'ask' ? 'ask' : 'library'; render(); };
+  if (S.settingsTab === 'models') { bindModelsTab(); if (!S.models) loadModels(); }
   document.querySelectorAll('[data-tab]').forEach(b => b.onclick = async () => {
     S.settingsTab = b.dataset.tab;
     if (S.settingsTab === 'tools') { try { S.tools = await api.Tools(); } catch (e) { fail(e); } S.obCur = (S.tools.find(t => t.state !== 'missing') || {}).id; }
+    if (S.settingsTab === 'models') loadModels(true);
     render();
   });
   const on = (id, fn) => { const el = $('#' + id); if (el) el.onclick = fn; };
@@ -604,6 +625,14 @@ function bindShell() {
   const q = $('#q');
   q.oninput = () => {
     clearTimeout(bindShell.t);
+    if (S.view === 'ask') {
+      bindShell.t = setTimeout(async () => {
+        S.askQuery = q.value.trim();
+        S.chatHits = S.askQuery ? (await api.SearchChats(S.askQuery).catch(() => [])) || [] : null;
+        const pos = q.selectionStart; render(); const nq = $('#q'); nq.focus(); nq.setSelectionRange(pos, pos);
+      }, 120);
+      return;
+    }
     bindShell.t = setTimeout(async () => {
       S.query = q.value.trim();
       S.hits = S.query ? await api.Search(S.query).catch(() => []) : null;
@@ -616,11 +645,11 @@ function bindShell() {
   };
   q.onkeydown = ev => {
     if (ev.key === 'Escape') { q.value = ''; q.oninput(); q.blur(); }
-    if (ev.key === 'ArrowDown' || ev.key === 'Enter') { ev.preventDefault(); const r = $('.row.on') || $('.row'); if (r) r.focus(); }
+    if (ev.key === 'ArrowDown' || ev.key === 'Enter') { ev.preventDefault(); const r = $('.row.on') || $('.row'); if (r) { if (S.view === 'ask' && !r.classList.contains('on')) r.click(); else r.focus(); } }
   };
   $('#new').onclick = startNew;
   $('#cmdk').onclick = () => openPalette();
-  $('#gear').onclick = async () => { S.view = 'settings'; S.semStale = true; render(); };
+  $('#gear').onclick = async () => { S.backView = S.view; S.view = 'settings'; S.semStale = true; render(); };
   const ft = $('#foot-tools');
   if (ft) ft.onclick = ft.onkeydown = async ev => {
     if (ev.type === 'keydown' && ev.key !== 'Enter') return;
@@ -634,6 +663,8 @@ function bindShell() {
     const list = visible(); if (!list.find(n => keyOf(n) === S.sel)) S.sel = list[0] ? keyOf(list[0]) : null;
     await loadHistory(); render();
   });
+  const ak = $('.side .ni[data-v="ask"]');
+  if (ak) ak.onclick = () => openAsk();
   const rv = $('.side .ni[data-v="review"]');
   if (rv) rv.onclick = () => { S.view = 'review'; S.editing = null; render(); };
   $('#addproj').onclick = async () => {
@@ -757,6 +788,337 @@ function bindReview() {
   document.querySelectorAll('.ur').forEach(r => r.onclick = () => { S.reviewIndex = +r.dataset.i; render(); });
 }
 
+// ---------- Ask: chat with your notes
+
+const PROVIDER_LABEL = { ollama: 'Ollama', openai: 'OpenAI-compatible', anthropic: 'Anthropic' };
+const shortModel = ref => String(ref || '').replace(/^(ollama|openai|anthropic)\//, '');
+
+async function loadChats() {
+  S.chats = (await api.Chats().catch(() => [])) || [];
+  if (S.askQuery) S.chatHits = (await api.SearchChats(S.askQuery).catch(() => [])) || [];
+}
+
+// Models are checked in the background: a provider that isn't answering
+// can take a few seconds, and the chat shouldn't wait for it.
+function loadModels(force) {
+  if (S.modelsLoading || (S.models && !force)) return S.modelsLoading || Promise.resolve();
+  S.modelsLoading = api.ChatModels().then(m => {
+    S.models = m;
+    const refs = m.options.map(o => o.ref);
+    if (!S.askModel || !refs.includes(S.askModel)) S.askModel = refs.includes(m.last) ? m.last : (m.default || refs[0] || '');
+  }).catch(() => { }).finally(() => {
+    S.modelsLoading = null;
+    if (S.view === 'ask' || (S.view === 'settings' && S.settingsTab === 'models')) render();
+  });
+  return S.modelsLoading;
+}
+
+async function openAsk(chatId) {
+  if (S.editing && !(await leaveEditor())) return;
+  S.view = 'ask'; S.editing = null; S.askErr = null; S.suggest = null;
+  if (chatId === undefined) chatId = S.chatSel || (S.chats[0] && S.chats[0].id) || null;
+  await selectChat(chatId, true);
+  loadModels();
+  const inp = $('#ask-in'); if (inp && !chatId) inp.focus();
+}
+
+async function selectChat(id, quiet) {
+  if (S.streaming && S.streaming.chatId && S.streaming.chatId !== id && !quiet) { /* the reply keeps streaming in the background */ }
+  S.chatSel = id; S.askErr = null; S.suggest = null; S.openUsed = null;
+  S.chat = id ? await api.Chat(id).catch(e => { fail(e); return null; }) : null;
+  if (!S.chat) S.chatSel = null;
+  render();
+  scrollChat(true);
+}
+
+function visibleChats() {
+  if (!S.chatHits) return S.chats;
+  const rank = new Map(S.chatHits.map((id, i) => [id, i]));
+  return S.chats.filter(c => rank.has(c.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id));
+}
+
+function renderChatList() {
+  const list = visibleChats();
+  let rows = list.map(c => `<div class="row${c.id === S.chatSel ? ' on' : ''}" tabindex="0" data-chat="${esc(c.id)}">
+<div class="rt${c.preview ? '' : ' full'}">${S.streaming && S.streaming.chatId === c.id ? '<span class="dot live" title="Answering"></span>' : ''}<span>${esc(c.title || 'New chat')}</span></div>
+${c.preview ? `<div class="rs">${esc(c.preview)}</div>` : ''}
+<div class="rm">${esc((c.models || []).map(shortModel).join(', ') || 'no reply yet')} · ${esc(agoLong(c.updated))}</div></div>`).join('');
+  if (!list.length) rows = S.askQuery ? `<div class="empty"><h3>Nothing matches</h3>No chat mentions “${esc(S.askQuery)}”.</div>`
+    : `<div class="empty"><h3>No chats yet</h3>Ask a question on the right.<br>Answers draw on your notes.</div>`;
+  return `<div class="list"><div class="lh"><h2 class="serif">${S.askQuery ? 'Results' : 'Ask'}</h2><button class="btn sm" id="chat-new" title="New chat">New chat</button></div><div class="rows">${rows}</div></div>`;
+}
+
+function modelPicker() {
+  const m = S.models;
+  if (!m) return `<select class="mpick" id="ask-model" disabled><option>${S.modelsLoading ? 'Checking models…' : 'Models'}</option></select>`;
+  if (!m.options.length) return `<button class="btn q sm" id="ask-setup">Set up a model</button>`;
+  const groups = {};
+  m.options.forEach(o => (groups[o.provider] = groups[o.provider] || []).push(o));
+  const opts = Object.keys(groups).map(p => `<optgroup label="${esc(PROVIDER_LABEL[p] || p)}">${groups[p].map(o => `<option value="${esc(o.ref)}"${o.ref === S.askModel ? ' selected' : ''}>${esc(o.name)}</option>`).join('')}</optgroup>`).join('');
+  return `<select class="mpick" id="ask-model" title="Model for the next message">${opts}</select>`;
+}
+
+function usedChip(i, notes, past, live) {
+  notes = notes || []; past = past || [];
+  if (!notes.length && !past.length) return live ? '' : `<div class="used"><span class="chip none">No notes used</span></div>`;
+  const parts = [];
+  if (notes.length) parts.push(`${notes.length} note${notes.length === 1 ? '' : 's'}`);
+  if (past.length) parts.push(`${past.length} earlier chat${past.length === 1 ? '' : 's'}`);
+  const open = S.openUsed === i;
+  const items = notes.map(n => `<div class="ui${n.missing ? ' gone' : ''}" ${n.missing ? 'title="Deleted since"' : `data-note="${esc(n.store)}\u001f${esc(n.id)}"`}>${ICON.all}<span>${esc(n.title || n.id)}</span></div>`).join('')
+    + past.map(p => `<div class="ui" data-pchat="${esc(p.id)}">${ICON.ask}<span>${esc(p.title || 'Earlier chat')}</span></div>`).join('');
+  return `<div class="used"><button class="chip${open ? ' on' : ''}" data-used="${i}">Used ${parts.join(' and ')}<span class="car">${open ? '▴' : '▾'}</span></button>${open ? `<div class="ulist">${items}</div>` : ''}</div>`;
+}
+
+function renderMsg(t, i) {
+  const bot = t.role === 'assistant';
+  const who = bot ? esc(shortModel(t.model)) : 'You';
+  const body = bot ? md(t.content) : `<div class="utext">${esc(t.content)}</div>`;
+  return `<div class="msg ${bot ? 'bot' : 'you'}" data-i="${i}"><div class="mh"><span class="who">${who}</span><span class="when" title="${esc(stamp(t.at))}">${esc(agoLong(t.at))}</span><span class="sp"></span>
+<span class="acts"><button class="btn q sm" data-copy="${i}">Copy</button><button class="btn q sm" data-rem="${i}">Remember</button></span></div>
+<div class="mb pr selectable">${body}</div>${t.stopped ? '<div class="stopped">Stopped</div>' : ''}${bot ? usedChip(i, t.noteRefs, t.pastRefs) : ''}</div>`;
+}
+
+function renderLive() {
+  const s = S.streaming;
+  return `<div class="msg bot live" id="live"><div class="mh"><span class="who">${esc(shortModel(s.model) || 'Thinking')}</span><span class="when">${s.started ? 'writing…' : 'reading your notes…'}</span></div>
+<div class="mb pr selectable" id="live-body">${s.text ? md(s.text) : '<span class="cursor"></span>'}</div><div id="live-used">${s.started ? usedChip('live', s.notes, s.past, true) : ''}</div></div>`;
+}
+
+function renderConversation() {
+  const c = S.chat;
+  const streamingHere = S.streaming && (S.streaming.chatId === S.chatSel || (!S.streaming.chatId && !S.chatSel));
+  const turns = c ? c.turns : [];
+  let msgs = turns.map(renderMsg).join('');
+  if (streamingHere) {
+    if (S.streaming.pendingUser) msgs += renderMsg({ role: 'user', content: S.streaming.pendingUser, at: new Date().toISOString() }, turns.length);
+    msgs += renderLive();
+  }
+  if (S.askErr && S.askErr.chat === S.chatSel && !streamingHere) {
+    msgs += `<div class="askerr"><span>${esc(S.askErr.msg)}</span><span class="sp"></span>${S.chatSel ? '<button class="btn sm" id="ask-retry">Try again</button>' : ''}</div>`;
+  }
+  const empty = !turns.length && !streamingHere;
+  const intro = empty ? `<div class="askintro"><h1 class="serif">Ask your notes</h1><p>Answers draw on what you and your AI tools have saved in jot, and on earlier chats. Each reply shows which notes it used.</p></div>` : '';
+  const sug = S.suggest && S.suggest.chat === S.chatSel && !streamingHere ? `<div class="sugg"><span class="lbl">Remember this?</span><span class="txt">${esc(S.suggest.text)}</span><span class="sp"></span><button class="btn q sm" id="sug-no">Dismiss</button><button class="btn sm" id="sug-yes">Save as note</button></div>` : '';
+  const busy = !!streamingHere;
+  const head = c ? `<span class="path" title="${esc(c.title)}">chats / ${esc(c.id)}.md</span><span class="sp"></span><button class="btn q sm" id="chat-reveal">Show file</button><button class="btn q sm danger" id="chat-del">Delete</button>`
+    : `<span class="path">New chat</span><span class="sp"></span>`;
+  return `<div class="doc askv"><div class="dh">${head}</div>
+<div class="dscroll" id="chat-scroll"><div class="msgs">${intro}${msgs}</div></div>
+<div class="composer">${sug}<div class="cbox"><textarea id="ask-in" rows="1" placeholder="${empty ? 'Ask anything about your notes…' : 'Reply…'}" spellcheck="true">${esc(S.draft || '')}</textarea>
+<div class="crow">${modelPicker()}<span class="hint"><span class="key">↵</span> send <span class="key">⇧ ↵</span> new line</span><span class="sp"></span>
+${busy ? '<button class="btn sm" id="ask-stop">Stop</button>' : `<button class="btn k sm" id="ask-send"${(S.draft || '').trim() ? '' : ' disabled'}>Send</button>`}</div></div></div></div>`;
+}
+
+function scrollChat(force) {
+  const el = $('#chat-scroll'); if (!el) return;
+  if (force || el.scrollHeight - el.scrollTop - el.clientHeight < 140) el.scrollTop = el.scrollHeight;
+}
+
+function fitComposer() {
+  const t = $('#ask-in'); if (!t) return;
+  t.style.height = 'auto'; t.style.height = Math.min(220, Math.max(22, t.scrollHeight)) + 'px';
+}
+
+function bindAsk() {
+  document.querySelectorAll('.row[data-chat]').forEach(r => {
+    r.onclick = () => selectChat(r.dataset.chat);
+    r.onkeydown = ev => {
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        const sib = ev.key === 'ArrowDown' ? r.nextElementSibling : r.previousElementSibling;
+        if (sib && sib.dataset.chat) selectChat(sib.dataset.chat).then(() => { const el = document.querySelector(`.row[data-chat="${CSS.escape(sib.dataset.chat)}"]`); if (el) el.focus(); });
+      }
+      if (ev.key === 'Enter') { ev.preventDefault(); const i = $('#ask-in'); if (i) i.focus(); }
+    };
+  });
+  const on = (id, fn) => { const el = $('#' + id); if (el) el.onclick = fn; };
+  on('chat-new', () => { S.draft = ''; selectChat(null).then(() => $('#ask-in') && $('#ask-in').focus()); });
+  on('chat-reveal', () => api.Reveal(S.state.stores[0].dir + sep() + 'chats' + sep() + S.chat.id + '.md').catch(fail));
+  on('chat-del', async () => {
+    const c = S.chat; if (!c) return;
+    let ok;
+    try { ok = await api.Confirm('Delete this chat?', `“${c.title}” will be removed.${S.state.gitFound ? ' Git history keeps a copy.' : ''}`); } catch (_) { ok = window.confirm('Delete this chat?'); }
+    if (!ok) return;
+    try {
+      const list = visibleChats(), i = list.findIndex(x => x.id === c.id);
+      await api.DeleteChat(c.id); await loadChats();
+      const after = visibleChats(), next = after[Math.min(i, after.length - 1)];
+      await selectChat(next ? next.id : null); toast('Chat deleted.');
+    } catch (e) { fail(e); }
+  });
+  on('ask-setup', () => { S.view = 'settings'; S.settingsTab = 'models'; loadModels(true); render(); });
+  on('ask-send', () => askSend());
+  on('ask-stop', () => { if (S.streaming) api.AskStop(S.streaming.id).catch(() => { }); });
+  on('ask-retry', () => askSend(true));
+  on('sug-no', () => { S.suggest = null; render(); });
+  on('sug-yes', () => remember(S.suggest.text, 'preference', () => { S.suggest = null; render(); }));
+  const sel = $('#ask-model'); if (sel) sel.onchange = () => { S.askModel = sel.value; };
+  const inp = $('#ask-in');
+  if (inp) {
+    fitComposer();
+    inp.oninput = () => {
+      S.draft = inp.value; fitComposer();
+      const b = $('#ask-send'); if (b) b.disabled = !inp.value.trim();
+    };
+    inp.onkeydown = ev => {
+      if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); askSend(); }
+      else if (ev.key === 'Escape' && S.streaming) { ev.preventDefault(); api.AskStop(S.streaming.id).catch(() => { }); }
+    };
+  }
+  const turns = (S.chat && S.chat.turns) || [];
+  document.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
+    const t = turns[+b.dataset.copy]; if (!t) return;
+    try { await navigator.clipboard.writeText(t.content); toast('Copied.'); }
+    catch (_) { if (window.runtime && window.runtime.ClipboardSetText) { window.runtime.ClipboardSetText(t.content); toast('Copied.'); } else fail('Couldn’t copy.'); }
+  });
+  document.querySelectorAll('[data-rem]').forEach(b => b.onclick = () => {
+    const t = turns[+b.dataset.rem]; if (t) remember(t.content, 'note');
+  });
+  bindUsed();
+}
+
+function bindUsed() {
+  document.querySelectorAll('[data-used]').forEach(b => b.onclick = () => {
+    const i = b.dataset.used === 'live' ? 'live' : +b.dataset.used;
+    S.openUsed = S.openUsed === i ? null : i;
+    if (i === 'live') { $('#live-used').innerHTML = usedChip('live', S.streaming.notes, S.streaming.past, true); bindUsed(); }
+    else { const keep = $('#chat-scroll').scrollTop; render(); $('#chat-scroll').scrollTop = keep; }
+  });
+  document.querySelectorAll('[data-note]').forEach(el => el.onclick = async () => {
+    S.view = 'library'; S.editing = null; S.query = ''; S.hits = null; S.filter = { type: 'all' };
+    S.sel = el.dataset.note; await loadHistory(); render();
+    const row = document.querySelector(`.row[data-key="${CSS.escape(S.sel)}"]`); if (row) row.scrollIntoView({ block: 'nearest' });
+  });
+  document.querySelectorAll('[data-pchat]').forEach(el => el.onclick = () => selectChat(el.dataset.pchat));
+}
+
+async function remember(text, kind, after) {
+  const save = async force => {
+    const r = await api.Remember(text, kind, force);
+    if (r.saved) {
+      await refresh();
+      toast('Saved as a note.', { action: 'Open', onAction: async () => { S.view = 'library'; S.filter = { type: 'all' }; S.query = ''; S.hits = null; S.sel = keyOf(r.note); await loadHistory(); render(); } });
+      if (after) after();
+    } else if (r.similar) {
+      toast('A note already says this.', { action: 'Save anyway', onAction: () => save(true).catch(fail) });
+    }
+  };
+  try { await save(false); } catch (e) { fail(e); }
+}
+
+function newStreamId() { return 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+
+async function askSend(retry) {
+  if (S.streaming) return;
+  const inp = $('#ask-in');
+  const text = retry ? '' : ((inp && inp.value.trim()) || S.draft || '').trim();
+  if (!retry && !text) return;
+  const model = S.askModel || (S.models && S.models.default) || '';
+  const id = newStreamId();
+  S.streaming = { id, chatId: S.chatSel, text: '', model, notes: [], past: [], started: false, pendingUser: retry ? '' : text };
+  if (retry && S.chat && S.chat.turns.length && S.chat.turns[S.chat.turns.length - 1].role === 'assistant') S.chat.turns.pop();
+  S.askErr = null; S.suggest = null; S.openUsed = null;
+  const draft = S.draft; S.draft = '';
+  render(); scrollChat(true);
+  try {
+    const chatId = await api.AskSend(id, S.chatSel || '', text, model);
+    if (S.streaming && S.streaming.id === id) {
+      S.streaming.chatId = chatId;
+      if (!S.chatSel) { S.chatSel = chatId; await loadChats(); render(); scrollChat(true); }
+    }
+  } catch (e) {
+    if (S.streaming && S.streaming.id === id) S.streaming = null;
+    S.draft = draft; render(); fail(e);
+  }
+  const i2 = $('#ask-in'); if (i2) i2.focus();
+}
+
+let liveFrame = 0;
+function onAskEvent(e) {
+  const s = S.streaming;
+  if (!e || !s || e.stream !== s.id) { if (e && e.type === 'done') loadChats().then(() => { if (S.view === 'ask') render(); }); return; }
+  if (e.type === 'start') {
+    s.started = true; s.model = e.model; s.notes = e.notes || []; s.past = e.past || [];
+    if (!s.chatId) s.chatId = e.chat;
+    if ($('#live')) { const w = $('#live .who'); if (w) w.textContent = shortModel(s.model); const t = $('#live .when'); if (t) t.textContent = 'writing…'; $('#live-used').innerHTML = usedChip('live', s.notes, s.past, true); bindUsed(); }
+  } else if (e.type === 'delta') {
+    s.text += e.text;
+    if (!liveFrame) liveFrame = requestAnimationFrame(() => {
+      liveFrame = 0;
+      const b = $('#live-body'); if (b && S.streaming) { b.innerHTML = md(S.streaming.text) || '<span class="cursor"></span>'; scrollChat(); }
+    });
+  } else if (e.type === 'done') {
+    const here = S.view === 'ask' && (S.chatSel === s.chatId || S.chatSel === e.chat.id);
+    S.streaming = null;
+    if (here) {
+      S.chatSel = e.chat.id; S.chat = e.chat;
+      S.askErr = e.error ? { chat: e.chat.id, msg: e.error } : null;
+      S.suggest = e.suggest ? { chat: e.chat.id, text: e.suggest } : null;
+    } else if (e.error) toast(e.error, { err: true });
+    const focused = document.activeElement && document.activeElement.id === 'ask-in';
+    loadChats().then(() => {
+      if (S.view === 'ask') { render(); scrollChat(); if (focused && $('#ask-in')) $('#ask-in').focus(); }
+    });
+  }
+}
+
+// ---------- Settings → Models
+
+function providerBlock(st) {
+  const ready = st.ready ? `<span class="ok">● Ready</span><span class="muted"> · ${st.models.length} model${st.models.length === 1 ? '' : 's'}</span>`
+    : st.configured ? `<span style="color:var(--red)">● Not answering</span>` : `<span class="muted">○ Not set up</span>`;
+  const detail = st.detail && st.configured ? `<div class="hint err">${esc(st.detail)}</div>` : '';
+  const models = st.ready && st.models.length ? `<div class="mlist">${st.models.slice(0, 40).map(m => `<span class="pill sm">${esc(m)}</span>`).join('')}${st.models.length > 40 ? `<span class="muted" style="font-size:12px">+${st.models.length - 40} more</span>` : ''}</div>` : '';
+  const p = st.provider;
+  const url = `<div class="line"><span class="fl">address</span><input class="field mono grow" id="m-url-${p}" value="${esc(st.url)}" spellcheck="false" autocomplete="off"></div>`;
+  let key = '';
+  if (p !== 'ollama') {
+    const has = !!st.key;
+    key = `<div class="line" style="margin-top:8px"><span class="fl">key</span>${has ? `<span class="pill" title="${st.keySource === 'saved' ? 'Saved key' : 'From ' + esc(st.keySource)}">${esc(st.key)}</span><span class="muted" style="font-size:12px">${st.keySource === 'saved' ? 'saved' : 'from ' + esc(st.keySource)}</span>` : ''}
+<input class="field mono grow" type="password" id="m-key-${p}" placeholder="${has ? 'Paste a new key to replace it' : 'Paste an API key'}" autocomplete="off" spellcheck="false">
+${has && st.keySource === 'saved' ? `<button class="btn sm q" data-mclear="${p}">Remove</button>` : ''}</div>`;
+  }
+  const hint = { ollama: 'Local models. Nothing leaves this computer. Pull one with <span class="mono">ollama pull qwen2.5:3b</span>.',
+    openai: 'OpenAI, or any server that speaks its API: OpenRouter <span class="mono">https://openrouter.ai/api/v1</span>, Groq <span class="mono">https://api.groq.com/openai/v1</span>, LM Studio <span class="mono">http://localhost:1234/v1</span>.',
+    anthropic: 'Claude models through the Anthropic API.' }[p];
+  return `<div class="lbl">${esc(st.label)}</div><div class="val prov"><div class="line" style="margin-bottom:8px;font-size:12.5px">${ready}<span class="sp"></span><button class="btn sm" data-mtest="${p}">Test</button></div>
+${url}${key}${detail}${models}<div class="hint">${hint}</div></div>`;
+}
+
+function renderModelsTab() {
+  const m = S.models;
+  if (!m) return `<div class="form"><div class="lbl">Models</div><div class="val"><span class="muted">Checking Ollama and your providers…</span></div></div>`;
+  const opts = `<option value=""${m.saved ? '' : ' selected'}>First available${!m.saved && m.default ? ' (' + esc(shortModel(m.default)) + ')' : ''}</option>` +
+    m.options.map(o => `<option value="${esc(o.ref)}"${o.ref === m.saved ? ' selected' : ''}>${esc(PROVIDER_LABEL[o.provider])} · ${esc(o.name)}</option>`).join('') +
+    (m.saved && !m.options.some(o => o.ref === m.saved) ? `<option value="${esc(m.saved)}" selected>${esc(m.saved)} (not available)</option>` : '');
+  return `<div class="form">
+<div class="lbl">Default model</div><div class="val"><select class="field" id="m-default" style="min-width:280px">${opts}</select><div class="hint">New chats start with this. The picker next to the message box changes it per message.</div></div>
+<hr>${m.providers.map(providerBlock).join('<hr>')}
+<hr><div class="lbl">Keys</div><div class="val"><span class="pill" title="${esc(m.keysFile)}">${esc(tildeish(m.keysFile))}</span><div class="hint">API keys are kept in this file on your computer, readable only by you, never in your notes folder (that one is a git repo). <span class="mono">OPENAI_API_KEY</span> and <span class="mono">ANTHROPIC_API_KEY</span> work too.</div></div>
+</div>`;
+}
+
+function bindModelsTab() {
+  const d = $('#m-default');
+  if (d) d.onchange = async () => { try { await api.SetDefaultModel(d.value); S.models.saved = d.value; if (d.value) S.askModel = d.value; toast('Default model saved.'); } catch (e) { fail(e); } };
+  const save = async (p, btn, clear) => {
+    const url = ($('#m-url-' + p) || {}).value || '';
+    const keyEl = $('#m-key-' + p), key = keyEl ? keyEl.value.trim() : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Testing…'; }
+    try {
+      const st = await api.SaveChatProvider(p, url, clear ? '' : key, clear || !!key);
+      const i = S.models.providers.findIndex(x => x.provider === p); if (i >= 0) S.models.providers[i] = st;
+      toast(st.ready ? `${st.label} is ready.` : `${st.label}: ${st.detail || 'not answering'}`, { err: !st.ready && st.configured });
+      await loadModels(true);
+    } catch (e) { fail(e); if (btn) { btn.disabled = false; btn.textContent = 'Test'; } }
+  };
+  document.querySelectorAll('[data-mtest]').forEach(b => b.onclick = () => save(b.dataset.mtest, b));
+  document.querySelectorAll('[data-mclear]').forEach(b => b.onclick = () => save(b.dataset.mclear, null, true));
+  document.querySelectorAll('[id^="m-key-"],[id^="m-url-"]').forEach(inp => inp.onkeydown = ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); const p = inp.id.replace(/^m-(key|url)-/, ''); save(p, document.querySelector(`[data-mtest="${p}"]`)); }
+  });
+}
 
 // ---------- command palette (Ctrl/⌘ K): jump to any note or run an action
 
@@ -765,14 +1127,18 @@ const pal = { open: false, q: '', items: [], i: 0, t: 0 };
 function palActions() {
   const go = (view, extra = {}) => async () => { Object.assign(S, { editing: null }, extra); S.view = view; if (view === 'library') { const v = visible(); if (!v.find(n => keyOf(n) === S.sel)) S.sel = v[0] ? keyOf(v[0]) : null; await loadHistory(); } render(); };
   const toolsTab = async () => { S.view = 'settings'; S.settingsTab = 'tools'; try { S.tools = await api.Tools(); } catch (e) { fail(e); } S.obCur = (S.tools.find(t => t.state !== 'missing') || {}).id; render(); };
+  const q = pal.q.trim();
   const a = [
+    q ? { label: `Ask “${q.length > 48 ? q.slice(0, 47) + '…' : q}”`, hint: 'new chat', ask: true, run: async () => { await openAsk(null); S.draft = q; await askSend(); } } : null,
+    { label: 'Ask your notes', hint: S.chats.length ? `${S.chats.length} chat${S.chats.length === 1 ? '' : 's'}` : 'new chat', run: () => openAsk() },
     { label: 'New note', hint: modKey() + ' N', run: () => startNew() },
     S.dupes.length ? { label: `Review duplicates`, hint: `${S.dupes.length} waiting`, run: go('review', { reviewIndex: 0 }) } : null,
     { label: 'All notes', run: go('library', { filter: { type: 'all' }, query: '', hits: null }) },
     { label: 'Pinned notes', run: go('library', { filter: { type: 'pinned' }, query: '', hits: null }) },
     { label: 'Connect AI tools', hint: S.state.connected ? `${S.state.connected} connected` : 'none yet', run: toolsTab },
     { label: 'Add project folder', run: () => $('#addproj') && $('#addproj').click() },
-    { label: 'Settings', hint: modKey() + ' ,', run: go('settings', { settingsTab: 'general' }) },
+    { label: 'Settings', hint: modKey() + ' ,', run: go('settings', { settingsTab: 'general', backView: S.view }) },
+    { label: 'Models for Ask', run: () => { S.backView = S.view; S.settingsTab = 'models'; S.view = 'settings'; loadModels(true); render(); } },
   ].filter(Boolean);
   S.state.stores.slice(1).forEach(st => a.push({ label: `Open ${st.label}`, hint: `${st.count} notes`, run: go('library', { filter: { type: 'store', key: st.key }, query: '', hits: null }) }));
   return a.map(x => ({ ...x, kind: 'action' }));
@@ -780,7 +1146,7 @@ function palActions() {
 
 async function palCompute() {
   const q = pal.q.trim().toLowerCase();
-  const acts = palActions().filter(a => !q || a.label.toLowerCase().includes(q));
+  const acts = palActions().filter(a => !q || a.ask || a.label.toLowerCase().includes(q));
   let notes;
   if (q) {
     const hits = (await api.Search(pal.q).catch(() => [])) || [];
@@ -790,7 +1156,9 @@ async function palCompute() {
   }
   const ni = notes.map(n => ({ kind: 'note', label: n.title || 'Untitled', hint: `${n.scope} · ${agoLong(n.updated)}`, n,
     run: async () => { S.view = 'library'; S.editing = null; S.query = ''; S.hits = null; S.filter = { type: 'all' }; S.sel = keyOf(n); await loadHistory(); render(); const el = document.querySelector(`.row[data-key="${CSS.escape(keyOf(n))}"]`); if (el) el.scrollIntoView({ block: 'nearest' }); } }));
-  pal.items = q ? [...ni, ...acts] : [...acts, ...ni];
+  const askIt = acts.filter(a => a.ask).map(a => ({ ...a, kind: 'ask' }));
+  const rest = acts.filter(a => !a.ask);
+  pal.items = q ? [...askIt, ...ni, ...rest] : [...rest, ...ni];
   pal.i = Math.min(pal.i, Math.max(0, pal.items.length - 1));
 }
 
@@ -800,7 +1168,7 @@ function palRender() {
   const hl = t => { if (!q) return esc(t); const i = t.toLowerCase().indexOf(q.toLowerCase()); return i < 0 ? esc(t) : esc(t.slice(0, i)) + '<mark>' + esc(t.slice(i, i + q.length)) + '</mark>' + esc(t.slice(i + q.length)); };
   let html = '', last = '';
   pal.items.forEach((it, j) => {
-    const grp = it.kind === 'note' ? (q ? 'Notes' : 'Recent notes') : 'Actions';
+    const grp = it.kind === 'note' ? (q ? 'Notes' : 'Recent notes') : it.kind === 'ask' ? 'Ask' : 'Actions';
     if (grp !== last) { html += `<div class="pg">${grp}</div>`; last = grp; }
     html += `<div class="pi${j === pal.i ? ' on' : ''}" data-j="${j}"><span class="pl">${it.kind === 'note' ? ICON.all : '<span class="arw">→</span>'}<span>${hl(it.label)}</span></span><span class="ph">${esc(it.hint || '')}</span></div>`;
   });
@@ -848,15 +1216,15 @@ document.addEventListener('keydown', async ev => {
   }
   else if (mod && ev.key.toLowerCase() === 'n') { ev.preventDefault(); if (!S.editing || await leaveEditor()) startNew(); }
   else if (mod && ev.key.toLowerCase() === 's' && S.editing) { ev.preventDefault(); $('#e-save').click(); }
-  else if (mod && ev.key === ',') { ev.preventDefault(); S.view = 'settings'; S.semStale = true; render(); }
+  else if (mod && ev.key === ',') { ev.preventDefault(); if (S.view !== 'settings') S.backView = S.view; S.view = 'settings'; S.semStale = true; render(); }
   else if (ev.key === 'Escape' && S.editing) { ev.preventDefault(); if (await leaveEditor()) render(); }
-  else if (ev.key === 'Escape' && S.view === 'settings') { S.view = 'library'; render(); }
+  else if (ev.key === 'Escape' && S.view === 'settings') { S.view = S.backView === 'ask' ? 'ask' : 'library'; render(); }
 });
 
 // Re-read the store when the window comes back, since agents write to it
 // while jot sits in the background.
 window.addEventListener('focus', async () => {
-  if (S.view === 'onboarding' || S.editing || !S.state) return;
+  if (S.view === 'onboarding' || S.editing || !S.state || S.streaming) return;
   try {
     const before = S.notes.map(n => n.id + n.updated).join() + S.dupes.length;
     await refresh();
@@ -883,6 +1251,7 @@ document.addEventListener('click', ev => {
   if (!ok) { $('#app').innerHTML = '<div class="empty" style="margin-top:120px"><h3>jot couldn’t start</h3>The app backend didn’t load. Reinstall jot.</div>'; return; }
   try {
     await refresh();
+    if (window.runtime && window.runtime.EventsOn) window.runtime.EventsOn('ask', onAskEvent);
     applyTheme(S.state.theme || 'system');
     S.autoCheck = await api.AutoUpdateCheck().catch(() => true);
     if (S.autoCheck) setTimeout(async () => { await checkForUpdate(false); if (S.update && !S.editing && S.view !== "onboarding" && S.view !== "settings") render(); }, 2500);
