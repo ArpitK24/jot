@@ -5,6 +5,7 @@ package mcp
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -138,6 +139,9 @@ func (s *Server) call(name string, raw json.RawMessage) (string, error) {
 	}
 	switch name {
 	case "remember":
+		if err := checkMemory(a.Text); err != nil {
+			return "", err
+		}
 		st, err := s.pick(a.Scope)
 		if err != nil {
 			return "", err
@@ -159,7 +163,7 @@ func (s *Server) call(name string, raw json.RawMessage) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Remembered %s (%s, %s).", m.ID, m.Kind, m.Scope), nil
+		return fmt.Sprintf("Remembered %s (%s, %s).", m.ID, m.Kind, m.Scope) + memoryTips(m.Body), nil
 	case "recall":
 		mems := s.all()
 		res := search.Search(mems, a.Query, search.Options{Limit: a.Limit, Kind: a.Kind, Tags: a.Tags, Index: s.Index})
@@ -168,6 +172,11 @@ func (s *Server) call(name string, raw json.RawMessage) (string, error) {
 		}
 		return Format(res), nil
 	case "update":
+		if strings.TrimSpace(a.Text) != "" {
+			if err := checkMemory(a.Text); err != nil {
+				return "", errors.New(strings.Replace(err.Error(), "Not saved", "Not updated", 1))
+			}
+		}
 		st, err := s.find(a.ID)
 		if err != nil {
 			return "", err
