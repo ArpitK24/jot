@@ -11,12 +11,14 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 )
 
 var version = "dev"
@@ -29,6 +31,14 @@ const shim = `<script>
   };
   const p = new Proxy({}, {get: (_, n) => call(n)});
   window.go = {main: {App: p, Window: p}};
+  // Wails events, over a server-sent event stream.
+  const subs = {};
+  const es = new EventSource('/events');
+  es.onmessage = (m) => { const e = JSON.parse(m.data); (subs[e.name] || []).forEach(cb => cb(e.data)); };
+  window.runtime = Object.assign(window.runtime || {}, {
+    EventsOn: (name, cb) => { (subs[name] = subs[name] || []).push(cb); return () => { subs[name] = subs[name].filter(x => x !== cb); }; },
+    EventsOff: (name) => { delete subs[name]; },
+  });
 })();
 </script>`
 
@@ -55,6 +65,9 @@ func main() {
 		releasesURL = u
 	}
 	app := NewApp(prefsPath())
+	hub := newHub()
+	app.setEmitter(hub.emit)
+	http.HandleFunc("/events", hub.serve)
 	targets := []reflect.Value{reflect.ValueOf(app), reflect.ValueOf(&devWindow{app})}
 	dist, _ := fs.Sub(os.DirFS("."), "frontend/dist")
 	files := http.FileServer(http.FS(dist))
@@ -103,4 +116,54 @@ func main() {
 	})
 	log.Printf("jot desktop preview on http://%s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, nil))
+}
+
+// hub fans events out to every open /events stream, the preview's
+// stand-in for Wails events.
+type hub struct {
+	mu   sync.Mutex
+	subs map[chan []byte]bool
+}
+
+func newHub() *hub { return &hub{subs: map[chan []byte]bool{}} }
+
+func (h *hub) emit(name string, data any) {
+	b, err := json.Marshal(map[string]any{"name": name, "data": data})
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for c := range h.subs {
+		select {
+		case c <- b:
+		default: // a stuck tab must not stall the reply
+		}
+	}
+}
+
+func (h *hub) serve(w http.ResponseWriter, r *http.Request) {
+	fl, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	c := make(chan []byte, 256)
+	h.mu.Lock()
+	h.subs[c] = true
+	h.mu.Unlock()
+	defer func() { h.mu.Lock(); delete(h.subs, c); h.mu.Unlock() }()
+	fmt.Fprint(w, ": ok\n\n")
+	fl.Flush()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case b := <-c:
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			fl.Flush()
+		}
+	}
 }
