@@ -202,7 +202,7 @@ func runModels(args []string, stdin io.Reader, stdout io.Writer) error {
 		if len(args) != 3 || (args[1] != chat.Ollama && args[1] != chat.OpenAI && args[1] != chat.Anthropic) {
 			return errors.New("usage: jot models url ollama|openai|anthropic <url>")
 		}
-		cfg := reg.Config
+		cfg := chat.ReadConfig(global)
 		switch args[1] {
 		case chat.Ollama:
 			cfg.Ollama.URL = args[2]
@@ -247,7 +247,7 @@ func runModels(args []string, stdin io.Reader, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
-		cfg := reg.Config
+		cfg := chat.ReadConfig(global)
 		cfg.Default = ref.String()
 		if err := chat.SaveConfig(global, cfg); err != nil {
 			return err

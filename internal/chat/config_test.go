@@ -22,6 +22,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	if c.Ollama.URL != "http://box:11434" || c.OpenAI.BaseURL != DefaultOpenAIURL {
 		t.Fatalf("defaults: %+v", c)
 	}
+	c = ReadConfig(dir)
 	c.Default = "ollama/qwen2.5:0.5b"
 	c.OpenAI.BaseURL = "https://openrouter.ai/api/v1/"
 	if err := SaveConfig(dir, c); err != nil {
@@ -32,12 +33,17 @@ func TestConfigRoundTrip(t *testing.T) {
 		t.Fatalf("saved: %s", b)
 	}
 	c2 := LoadConfig(dir)
-	if c2.Default != c.Default || c2.OpenAI.BaseURL != "https://openrouter.ai/api/v1" {
+	if c2.Default != c.Default || c2.OpenAI.BaseURL != "https://openrouter.ai/api/v1" || c2.Ollama.URL != "http://box:11434" {
 		t.Fatalf("reload: %+v", c2)
 	}
 	t.Setenv("JOT_CHAT_MODEL", "gpt-4o")
 	if LoadConfig(dir).Default != "gpt-4o" {
 		t.Fatal("JOT_CHAT_MODEL ignored")
+	}
+	// ReadConfig is the file alone, so saving it back never persists an
+	// environment override or an address borrowed from "embed".
+	if raw := ReadConfig(dir); raw.Default != "ollama/qwen2.5:0.5b" || raw.Ollama.URL != "" {
+		t.Fatalf("ReadConfig: %+v", raw)
 	}
 }
 

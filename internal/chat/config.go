@@ -40,6 +40,18 @@ type AnthropicConfig struct {
 	BaseURL string `json:"base_url,omitempty"`
 }
 
+// ReadConfig reads the chat config exactly as saved: no defaults and no
+// environment overrides. Edit this and pass it to SaveConfig.
+func ReadConfig(globalDir string) Config {
+	var file struct {
+		Chat Config `json:"chat"`
+	}
+	if b, err := os.ReadFile(filepath.Join(globalDir, configFile)); err == nil {
+		_ = json.Unmarshal(b, &file)
+	}
+	return file.Chat
+}
+
 // LoadConfig reads the chat config from globalDir. A missing file is an
 // empty config. JOT_CHAT_MODEL overrides the default model, and when no
 // Ollama address is set the one from JOT_OLLAMA_URL or semantic search's
