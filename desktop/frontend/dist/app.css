@@ -256,3 +256,5 @@ ins{background:#DFEDDF;color:#2D5E38;text-decoration:none;padding:0 1px;border-r
 .pe{padding:22px 12px;color:var(--ink3);font-size:13px;text-align:center}
 .pf{display:flex;gap:16px;padding:8px 14px;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink3);background:var(--side)}
 .pf .key{margin-right:3px}
+.hint a,.val a{color:var(--ink);text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:2px}
+.hint a:hover,.val a:hover{text-decoration-color:var(--red)}

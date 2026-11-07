@@ -310,8 +310,8 @@ function renderReview() {
   const days = Math.round(Math.abs(new Date(p.keep.created) - new Date(p.drop.created)) / 864e5);
   const when = days === 0 ? 'on the same day' : days === 1 ? 'a day apart' : `${days} days apart`;
   const next = S.dupes.map((q, j) => j === i ? '' : `<div class="ur" data-i="${j}"><span class="l">${esc(q.drop.title)}</span><span class="m">vs</span><span class="l">${esc(q.keep.title)}</span><span class="s">${esc(q.drop.source || '?')} · ${esc(q.keep.source || '?')}</span></div>`).join('');
-  return `<div class="rv fade"><div class="mh"><div class="crumb">Needs review · ${i + 1} of ${S.dupes.length} · ${Math.round(p.score * 100)}% alike</div>
-<h1 class="serif">These two notes say the same thing</h1><p>${esc(who)}, ${when}.</p></div>
+  return `<div class="rv fade"><div class="mh"><div class="crumb">Needs review · ${i + 1} of ${S.dupes.length} · ${p.semantic ? 'same meaning, different words' : Math.round(p.score * 100) + '% alike'}</div>
+<h1 class="serif">${p.semantic ? 'These two notes mean the same thing' : 'These two notes say the same thing'}</h1><p>${esc(who)}, ${when}.</p></div>
 <div class="cols"><div class="nt"><div class="h"><span>${esc(p.drop.scope)} / ${esc(p.drop.id)}.md</span><span>${esc(p.drop.source || '?')} · ${esc(ago(p.drop.created))}</span></div><div class="b selectable">${d.a}</div></div>
 <div class="nt"><div class="h"><span>${esc(p.keep.scope)} / ${esc(p.keep.id)}.md</span><span>${esc(p.keep.source || '?')} · ${esc(ago(p.keep.created))}</span></div><div class="b selectable">${d.b}</div></div></div>
 <div class="mg"><div class="h"><span>Merged → ${esc(p.keep.scope)} / ${esc(p.keep.id)}.md</span><span class="muted">editable</span></div>
@@ -420,8 +420,8 @@ function renderSettings() {
 <div class="lbl">Command line</div><div class="val">${st.cli ? `<div class="line"><span class="pill" title="${esc(st.cli)}">${esc(st.cli)}</span>${st.onPath ? '<span class="ok" style="font-size:12.5px">● on PATH</span>' : '<button class="btn sm" id="s-path">Add to PATH</button>'}</div>
 <div class="hint">${st.onPath ? 'Run <span class="mono">jot</span> in any new terminal. Try <span class="mono">jot ls</span> or <span class="mono">jot search</span>.' : 'Adding it lets you run <span class="mono">jot</span> from any terminal.'}</div>` : '<span class="muted">Not found next to the app. Reinstall jot to get the command-line tool.</span>'}</div>
 <hr>
-<div class="lbl">Search</div><div class="val">Keyword search with relevance ranking, tag matches and a boost for recent notes. Built in, works offline.</div>
-<div class="lbl">Duplicates</div><div class="val">${S.dupes.length ? `${S.dupes.length} pair${S.dupes.length > 1 ? 's' : ''} to review. <button class="btn sm" id="s-review" style="margin-left:6px">Review</button>` : 'None right now.'}<div class="hint">jot flags notes that share most of their words. Agents get the same warning before they save a near copy.</div></div>
+<div class="lbl">Search</div><div class="val">${semanticRow()}</div>
+<div class="lbl">Duplicates</div><div class="val">${S.dupes.length ? `${S.dupes.length} pair${S.dupes.length > 1 ? 's' : ''} to review. <button class="btn sm" id="s-review" style="margin-left:6px">Review</button>` : 'None right now.'}<div class="hint">jot flags notes that share most of their words${S.sem && S.sem.on ? ', or mean the same thing' : ''}. Agents get the same warning before they save a near copy.</div></div>
 <hr>
 <div class="lbl">Setup</div><div class="val"><button class="btn" id="s-onboard">Run setup again</button></div>
 </div>`;
@@ -451,6 +451,20 @@ ${S.tools.some(t => t.state === 'missing') ? `<div class="line" style="margin-to
 <div class="st-wrap"><div class="seg">${tab('general', ICON.gear, 'General')}${tab('tools', ICON.tools, 'Tools')}${tab('storage', ICON.disk, 'Storage')}</div><div class="st-body fade">${body}</div></div>`;
 }
 
+function semanticRow() {
+  const m = S.sem;
+  if (!m) return '<span class="muted">Checking…</span>';
+  if (!m.on) return `Keyword search, built in and offline.
+<div class="line" style="margin-top:10px"><button class="btn sm" id="s-sem-on">Turn on semantic search</button></div>
+<div class="hint">Also finds notes that say the same thing in other words, and spots reworded duplicates. Needs <a href="https://ollama.com" target="_blank" rel="noreferrer">Ollama</a> on this computer; jot uses its small <span class="mono">${esc(m.model)}</span> model. Nothing leaves your machine.</div>`;
+  if (m.ready) return `Keyword + semantic <span class="pill" style="margin-left:6px">${esc(m.model)}</span>
+<div class="line" style="margin-top:10px"><span class="ok" style="font-size:12.5px">● Ollama ready</span><button class="btn sm q" id="s-sem-off">Turn off</button></div>
+<div class="hint">Every tool connected to jot gets these results too.</div>`;
+  return `Keyword + semantic <span class="pill" style="margin-left:6px">${esc(m.model)}</span>
+<div class="line" style="margin-top:10px"><span style="color:var(--red);font-size:12.5px">● Ollama isn’t answering</span><button class="btn sm" id="s-sem-check">Check again</button><button class="btn sm q" id="s-sem-off">Turn off</button></div>
+<div class="hint">${esc(m.detail)}. Install <a href="https://ollama.com" target="_blank" rel="noreferrer">Ollama</a>, then run <span class="mono">ollama pull ${esc(m.model)}</span>. Until then jot uses keyword search.</div>`;
+}
+
 function bindSettings() {
   $('#s-back').onclick = () => { S.view = 'library'; render(); };
   document.querySelectorAll('[data-tab]').forEach(b => b.onclick = async () => {
@@ -461,6 +475,18 @@ function bindSettings() {
   const on = (id, fn) => { const el = $('#' + id); if (el) el.onclick = fn; };
   on('s-path', async () => { try { S.state = await api.AddToPath(); render(); toast('Added. Open a new terminal to use jot.'); } catch (e) { fail(e); } });
   on('s-review', () => { S.view = 'review'; S.reviewIndex = 0; render(); });
+  const semSet = async (on, btn) => {
+    if (btn) { btn.disabled = true; btn.textContent = on ? 'Turning on…' : 'Turning off…'; }
+    try { S.sem = await api.SetSemantic(on); await refresh(); render(); toast(on ? (S.sem.ready ? 'Semantic search is on.' : 'Turned on. Waiting for Ollama.') : 'Semantic search is off.'); }
+    catch (e) { fail(e); render(); }
+  };
+  on('s-sem-on', ev => semSet(true, ev.target));
+  on('s-sem-off', ev => semSet(false, ev.target));
+  on('s-sem-check', async ev => { ev.target.disabled = true; ev.target.textContent = 'Checking…'; S.sem = await api.SemanticStatus().catch(() => S.sem); if (S.sem.ready) await semSet(true); else render(); });
+  if (S.settingsTab === 'general' && !S.semLoading && (!S.sem || S.semStale)) {
+    S.semLoading = true; S.semStale = false;
+    api.SemanticStatus().then(m => { S.sem = m; }).catch(() => { }).finally(() => { S.semLoading = false; if (S.view === 'settings') render(); });
+  }
   on('s-onboard', async () => { S.obStep = 1; S.view = 'onboarding'; render(); });
   on('s-proj', async () => { try { const d = await api.ChooseProject(); if (d) { await refresh(); render(); toast('Added ' + d.split(/[\\/]/).pop()); } } catch (e) { fail(e); } });
   document.querySelectorAll('[data-rev]').forEach(b => b.onclick = () => api.Reveal(b.dataset.rev).catch(fail));
@@ -508,7 +534,7 @@ function bindShell() {
   };
   $('#new').onclick = startNew;
   $('#cmdk').onclick = () => openPalette();
-  $('#gear').onclick = async () => { S.view = 'settings'; render(); };
+  $('#gear').onclick = async () => { S.view = 'settings'; S.semStale = true; render(); };
   const ft = $('#foot-tools');
   if (ft) ft.onclick = ft.onkeydown = async ev => {
     if (ev.type === 'keydown' && ev.key !== 'Enter') return;
@@ -736,7 +762,7 @@ document.addEventListener('keydown', async ev => {
   }
   else if (mod && ev.key.toLowerCase() === 'n') { ev.preventDefault(); if (!S.editing || await leaveEditor()) startNew(); }
   else if (mod && ev.key.toLowerCase() === 's' && S.editing) { ev.preventDefault(); $('#e-save').click(); }
-  else if (mod && ev.key === ',') { ev.preventDefault(); S.view = 'settings'; render(); }
+  else if (mod && ev.key === ',') { ev.preventDefault(); S.view = 'settings'; S.semStale = true; render(); }
   else if (ev.key === 'Escape' && S.editing) { ev.preventDefault(); if (await leaveEditor()) render(); }
   else if (ev.key === 'Escape' && S.view === 'settings') { S.view = 'library'; render(); }
 });
@@ -753,6 +779,15 @@ window.addEventListener('focus', async () => {
       await loadHistory(); render();
     }
   } catch (_) { }
+});
+
+// Links open in the user's browser, never inside the app window.
+document.addEventListener('click', ev => {
+  const a = ev.target.closest && ev.target.closest('a[href^="http"]');
+  if (!a) return;
+  ev.preventDefault();
+  if (window.runtime && window.runtime.BrowserOpenURL) window.runtime.BrowserOpenURL(a.href);
+  else window.open(a.href, '_blank', 'noopener');
 });
 
 // ---------- boot

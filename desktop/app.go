@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -9,9 +10,11 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ArpitK24/jot/internal/dedup"
+	"github.com/ArpitK24/jot/internal/embed"
 	"github.com/ArpitK24/jot/internal/search"
 	"github.com/ArpitK24/jot/internal/setup"
 	"github.com/ArpitK24/jot/internal/store"
@@ -23,6 +26,22 @@ type App struct {
 	prefs   *prefs
 	cliPath func() string
 	opener  func(path string) error
+
+	ixMu  sync.Mutex
+	ix    *embed.Index
+	ixCfg embed.Config
+}
+
+// semantic returns the embedding index when semantic search is on. The
+// index is kept between calls so its vector cache is read once.
+func (a *App) semantic() *embed.Index {
+	cfg := embed.Load(store.GlobalDir())
+	a.ixMu.Lock()
+	defer a.ixMu.Unlock()
+	if a.ix == nil || cfg != a.ixCfg {
+		a.ix, a.ixCfg = embed.Open(cfg), cfg
+	}
+	return a.ix
 }
 
 // NewApp loads saved preferences and makes sure the global store exists.
@@ -167,7 +186,7 @@ func (a *App) Search(query string) []Hit {
 		}
 	}
 	hits := []Hit{}
-	for _, r := range search.Search(mems, query, search.Options{Limit: 200}) {
+	for _, r := range search.Search(mems, query, search.Options{Limit: 200, Index: a.semantic()}) {
 		hits = append(hits, Hit{Store: keys[r.Memory], ID: r.Memory.ID, Score: r.Score})
 	}
 	return hits
@@ -273,6 +292,7 @@ type Pair struct {
 	Keep       Note     `json:"keep"`
 	Drop       Note     `json:"drop"`
 	Score      float64  `json:"score"`
+	Semantic   bool     `json:"semantic"`
 	MergedBody string   `json:"mergedBody"`
 	MergedTags []string `json:"mergedTags"`
 }
@@ -292,17 +312,19 @@ func (a *App) Duplicates() []Pair {
 		skip[k] = true
 	}
 	out := []Pair{}
+	ix := a.semantic()
 	for _, s := range a.stores() {
 		mems, err := s.st.List()
 		if err != nil {
 			continue
 		}
-		for _, p := range dedup.Pairs(mems, dedup.Threshold) {
+		pairs, _ := dedup.PairsWith(mems, dedup.Threshold, ix)
+		for _, p := range pairs {
 			if skip[pairKey(p.Keep.ID, p.Drop.ID)] {
 				continue
 			}
 			out = append(out, Pair{
-				Keep: toNote(s, p.Keep), Drop: toNote(s, p.Drop), Score: p.Score,
+				Keep: toNote(s, p.Keep), Drop: toNote(s, p.Drop), Score: p.Score, Semantic: p.Semantic,
 				MergedBody: dedup.MergeBody(p.Keep.Body, p.Drop.Body),
 				MergedTags: dedup.MergeTags(p.Keep.Tags, p.Drop.Tags),
 			})
@@ -527,4 +549,60 @@ func reveal(path string) error {
 		cmd = exec.Command("xdg-open", path)
 	}
 	return cmd.Start()
+}
+
+// Semantic describes semantic search for the Settings screen.
+type Semantic struct {
+	On     bool   `json:"on"`
+	Model  string `json:"model"`
+	URL    string `json:"url"`
+	Ready  bool   `json:"ready"`
+	Detail string `json:"detail"` // why it isn't ready
+	Cached int    `json:"cached"`
+}
+
+// SemanticStatus reports whether semantic search is on and working.
+func (a *App) SemanticStatus() Semantic {
+	ix := a.semantic()
+	if ix == nil {
+		return Semantic{Model: embed.DefaultModel, URL: embed.DefaultURL}
+	}
+	st := Semantic{On: true, Model: ix.Model(), URL: ix.URL(), Cached: ix.Cached()}
+	if err := ix.Check(context.Background()); err != nil {
+		st.Detail = strings.TrimPrefix(err.Error(), embed.ErrUnavailable.Error()+": ")
+	} else {
+		st.Ready = true
+	}
+	return st
+}
+
+// SetSemantic turns semantic search on or off. Turning it on embeds every
+// note once, so the first search is quick.
+func (a *App) SetSemantic(on bool) (Semantic, error) {
+	cfg := embed.Config{}
+	if on {
+		cfg = embed.Load(store.GlobalDir())
+		if !cfg.On() {
+			cfg = embed.Config{Provider: "ollama", Model: embed.DefaultModel, URL: embed.DefaultURL}
+		}
+	}
+	if err := embed.Save(store.GlobalDir(), cfg); err != nil {
+		return Semantic{}, err
+	}
+	st := a.SemanticStatus()
+	if st.Ready {
+		var texts []string
+		for _, s := range a.stores() {
+			ms, _ := s.st.List()
+			for _, m := range ms {
+				texts = append(texts, m.Body)
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := a.semantic().Documents(ctx, texts); err == nil {
+			st.Cached = a.semantic().Cached()
+		}
+	}
+	return st, nil
 }
