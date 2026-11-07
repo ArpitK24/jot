@@ -53,6 +53,9 @@ const S = {
   reviewIndex: 0,
   settingsTab: 'general',
   obStep: 1, obPick: new Set(), obCur: null,
+  update: null,             // newest release when it's newer than this build
+  upd: null,                // last result of a manual check, for Settings
+  autoCheck: true,
 };
 const keyOf = n => n.store + '\u001f' + n.id;
 const isMac = () => (S.state && S.state.os === 'darwin');
@@ -157,6 +160,57 @@ function wordDiff(a, b) {
   return { a: x.replace(/<\/del>(\s*)<del>/g, '$1'), b: y.replace(/<\/ins>(\s*)<ins>/g, '$1') };
 }
 
+// ---------- appearance
+
+const darkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+function applyTheme(theme) {
+  const dark = theme === 'dark' || (theme === 'system' && darkQuery && darkQuery.matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  api.ApplyTheme(theme).catch(() => { });
+}
+if (darkQuery) darkQuery.addEventListener('change', () => { if (S.state && S.state.theme === 'system') applyTheme('system'); });
+
+// ---------- updates
+
+function fmtMB(n) { return n ? (n / 1048576).toFixed(1) + ' MB' : ''; }
+async function checkForUpdate(manual) {
+  const u = await api.CheckUpdate().catch(() => null);
+  if (manual) S.upd = u;
+  if (u && u.available && (manual || !u.dismissed)) S.update = u;
+  else if (u && u.checked && !u.available) S.update = null;
+  return u;
+}
+async function installUpdate(btn) {
+  const u = S.update;
+  if (!u) return;
+  if (!u.canApply) { openURL(u.page); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Downloading…'; }
+  try {
+    await api.InstallUpdate();
+    toast('Installing jot ' + u.latest + '. It reopens in a moment.');
+    setTimeout(() => api.Quit().catch(() => { }), 1200);
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Update and restart'; }
+    fail(e);
+  }
+}
+function openURL(url) {
+  if (window.runtime && window.runtime.BrowserOpenURL) window.runtime.BrowserOpenURL(url);
+  else window.open(url, '_blank', 'noopener');
+}
+function updateBar() {
+  const u = S.update;
+  if (!u || S.updateHidden) return '';
+  return `<div class="upd"><span class="dot"></span><span><b>jot ${esc(u.latest)}</b> is available. You have ${esc(u.current)}.</span><span class="sp"></span>
+<button class="btn sm q" id="upd-notes">What’s new</button><button class="btn sm q" id="upd-later">Later</button><button class="btn sm k" id="upd-go">${u.canApply ? 'Update and restart' : 'Download'}</button></div>`;
+}
+function bindUpdateBar() {
+  const on = (id, fn) => { const el = $('#' + id); if (el) el.onclick = fn; };
+  on('upd-go', ev => installUpdate(ev.target));
+  on('upd-notes', () => openURL(S.update.page));
+  on('upd-later', async () => { S.updateHidden = true; await api.SkipUpdate(S.update.latest).catch(() => { }); render(); });
+}
+
 // ---------- data
 
 async function refresh(opts = {}) {
@@ -198,8 +252,8 @@ function render() {
   const app = $('#app');
   if (S.view === 'onboarding') { app.innerHTML = renderOnboarding(); bindOnboarding(); return; }
   if (S.view === 'settings') { app.innerHTML = renderSettings(); bindSettings(); return; }
-  app.innerHTML = `${topbar()}<div class="main">${sidebar()}${S.view === 'review' ? renderReview() : renderList() + renderDoc()}</div>`;
-  bindShell();
+  app.innerHTML = `${topbar()}${updateBar()}<div class="main">${sidebar()}${S.view === 'review' ? renderReview() : renderList() + renderDoc()}</div>`;
+  bindShell(); bindUpdateBar();
   if (S.view === 'review') bindReview(); else { bindList(); bindDoc(); }
 }
 
@@ -416,7 +470,9 @@ function renderSettings() {
   let body = '';
   if (S.settingsTab === 'general') {
     body = `<div class="form">
-<div class="lbl">Version</div><div class="val"><span class="pill">jot ${esc(st.version)}</span></div>
+<div class="lbl">Version</div><div class="val">${updateRow()}</div>
+<div class="lbl">Appearance</div><div class="val"><div class="themes">${['system', 'light', 'dark'].map(t => `<button data-th="${t}" class="${st.theme === t ? 'on' : ''}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
+<div class="hint">System follows your ${isMac() ? 'macOS' : st.os === 'windows' ? 'Windows' : 'desktop'} setting.</div></div>
 <div class="lbl">Command line</div><div class="val">${st.cli ? `<div class="line"><span class="pill" title="${esc(st.cli)}">${esc(st.cli)}</span>${st.onPath ? '<span class="ok" style="font-size:12.5px">● on PATH</span>' : '<button class="btn sm" id="s-path">Add to PATH</button>'}</div>
 <div class="hint">${st.onPath ? 'Run <span class="mono">jot</span> in any new terminal. Try <span class="mono">jot ls</span> or <span class="mono">jot search</span>.' : 'Adding it lets you run <span class="mono">jot</span> from any terminal.'}</div>` : '<span class="muted">Not found next to the app. Reinstall jot to get the command-line tool.</span>'}</div>
 <hr>
@@ -451,6 +507,19 @@ ${S.tools.some(t => t.state === 'missing') ? `<div class="line" style="margin-to
 <div class="st-wrap"><div class="seg">${tab('general', ICON.gear, 'General')}${tab('tools', ICON.tools, 'Tools')}${tab('storage', ICON.disk, 'Storage')}</div><div class="st-body fade">${body}</div></div>`;
 }
 
+function updateRow() {
+  const st = S.state, u = S.upd, avail = S.update;
+  let status = '';
+  if (S.checking) status = '<span class="muted" style="font-size:12.5px">Checking…</span>';
+  else if (avail) status = `<span style="font-size:12.5px;color:var(--red)">● ${esc(avail.latest)} available${avail.size ? ' · ' + fmtMB(avail.size) : ''}</span><button class="btn sm k" id="s-upd-go">${avail.canApply ? 'Update and restart' : 'Download'}</button>`;
+  else if (u && !u.checked) status = `<span class="muted" style="font-size:12.5px">${esc(u.detail || 'Couldn’t check')}</span><button class="btn sm" id="s-upd-check">Try again</button>`;
+  else if (u) status = `<span class="ok" style="font-size:12.5px">● Up to date</span>`;
+  else status = `<button class="btn sm" id="s-upd-check">Check for updates</button>`;
+  return `<div class="line"><span class="pill">jot ${esc(st.version)}</span>${status}</div>
+<label class="line" style="margin-top:10px;gap:8px;cursor:pointer;font-size:12.5px;color:var(--ink2)"><span class="cbx${S.autoCheck ? ' on' : ''}" id="s-upd-auto" tabindex="0"></span>Check for updates when jot opens</label>
+<div class="hint">Updates come from jot’s GitHub releases and are checked against their published checksum before they install.</div>`;
+}
+
 function semanticRow() {
   const m = S.sem;
   if (!m) return '<span class="muted">Checking…</span>';
@@ -475,6 +544,12 @@ function bindSettings() {
   const on = (id, fn) => { const el = $('#' + id); if (el) el.onclick = fn; };
   on('s-path', async () => { try { S.state = await api.AddToPath(); render(); toast('Added. Open a new terminal to use jot.'); } catch (e) { fail(e); } });
   on('s-review', () => { S.view = 'review'; S.reviewIndex = 0; render(); });
+  document.querySelectorAll("[data-th]").forEach(b => b.onclick = async () => {
+    try { await api.SetTheme(b.dataset.th); S.state.theme = b.dataset.th; applyTheme(b.dataset.th); render(); } catch (e) { fail(e); }
+  });
+  on('s-upd-check', async () => { S.checking = true; render(); await checkForUpdate(true); S.checking = false; S.updateHidden = false; render(); });
+  on('s-upd-go', ev => installUpdate(ev.target));
+  on('s-upd-auto', async () => { S.autoCheck = !S.autoCheck; render(); await api.SetAutoUpdateCheck(S.autoCheck).catch(fail); });
   const semSet = async (on, btn) => {
     if (btn) { btn.disabled = true; btn.textContent = on ? 'Turning on…' : 'Turning off…'; }
     try { S.sem = await api.SetSemantic(on); await refresh(); render(); toast(on ? (S.sem.ready ? 'Semantic search is on.' : 'Turned on. Waiting for Ollama.') : 'Semantic search is off.'); }
@@ -797,6 +872,9 @@ document.addEventListener('click', ev => {
   if (!ok) { $('#app').innerHTML = '<div class="empty" style="margin-top:120px"><h3>jot couldn’t start</h3>The app backend didn’t load. Reinstall jot.</div>'; return; }
   try {
     await refresh();
+    applyTheme(S.state.theme || 'system');
+    S.autoCheck = await api.AutoUpdateCheck().catch(() => true);
+    if (S.autoCheck) setTimeout(async () => { await checkForUpdate(false); if (S.update && !S.editing && S.view !== "onboarding" && S.view !== "settings") render(); }, 2500);
     if (!S.state.onboarded) { S.view = 'onboarding'; }
     else { const v = visible(); S.sel = v[0] ? keyOf(v[0]) : null; await loadHistory(); }
     render();
