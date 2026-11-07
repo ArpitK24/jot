@@ -33,6 +33,7 @@ type Client struct {
 	Config string // absolute path to the config file
 	Detect string // directory whose presence means the tool is installed
 	Format Format
+	Rules  string // global instructions file the tool reads every session, or ""
 }
 
 // Clients lists the tools jot can connect, with paths for this OS and user.
@@ -47,10 +48,10 @@ func Clients() ([]Client, error) {
 	}
 	desktop := filepath.Join(cfg, "Claude")
 	return []Client{
-		{ID: "claude-code", Name: "Claude Code", Config: filepath.Join(home, ".claude.json"), Detect: filepath.Join(home, ".claude"), Format: JSON},
+		{ID: "claude-code", Name: "Claude Code", Config: filepath.Join(home, ".claude.json"), Detect: filepath.Join(home, ".claude"), Format: JSON, Rules: filepath.Join(home, ".claude", "CLAUDE.md")},
 		{ID: "cursor", Name: "Cursor", Config: filepath.Join(home, ".cursor", "mcp.json"), Detect: filepath.Join(home, ".cursor"), Format: JSON},
-		{ID: "codex", Name: "Codex", Config: filepath.Join(home, ".codex", "config.toml"), Detect: filepath.Join(home, ".codex"), Format: TOML},
-		{ID: "antigravity", Name: "Antigravity", Config: filepath.Join(home, ".gemini", "config", "mcp_config.json"), Detect: filepath.Join(home, ".gemini"), Format: JSON},
+		{ID: "codex", Name: "Codex", Config: filepath.Join(home, ".codex", "config.toml"), Detect: filepath.Join(home, ".codex"), Format: TOML, Rules: filepath.Join(home, ".codex", "AGENTS.md")},
+		{ID: "antigravity", Name: "Antigravity", Config: filepath.Join(home, ".gemini", "config", "mcp_config.json"), Detect: filepath.Join(home, ".gemini"), Format: JSON, Rules: filepath.Join(home, ".gemini", "GEMINI.md")},
 		{ID: "claude-desktop", Name: "Claude Desktop", Config: filepath.Join(desktop, "claude_desktop_config.json"), Detect: desktop, Format: JSON},
 	}, nil
 }
@@ -75,6 +76,7 @@ type Plan struct {
 	State   State
 	Command string
 	Snippet string // what gets written, for showing the user
+	Rules   bool   // the tool's instructions file needs jot's block added or refreshed
 }
 
 // Installed reports whether the client's tool is on this machine.
@@ -86,8 +88,27 @@ func (c Client) Installed() bool {
 	return err == nil
 }
 
-// Check works out what connecting c to command would change.
+// Check works out what connecting c to command would change: the MCP
+// server entry, and the short jot block in the tool's instructions file.
 func Check(c Client, command string) (Plan, error) {
+	p, err := checkServer(c, command)
+	if err != nil || p.State == Missing {
+		return p, err
+	}
+	ok, err := rulesCurrent(c)
+	if err != nil {
+		return p, err
+	}
+	if !ok {
+		p.Rules = true
+		if p.State == Connected {
+			p.State = Different
+		}
+	}
+	return p, nil
+}
+
+func checkServer(c Client, command string) (Plan, error) {
 	p := Plan{Client: c, Command: command, Snippet: snippet(c, command)}
 	if !c.Installed() {
 		p.State = Missing
@@ -138,6 +159,13 @@ func Check(c Client, command string) (Plan, error) {
 // if needed. A copy of the original is kept next to it as <file>.jot-backup
 // the first time jot touches it.
 func Apply(p Plan) error {
+	if err := applyServer(p); err != nil {
+		return err
+	}
+	return applyRules(p.Client)
+}
+
+func applyServer(p Plan) error {
 	c := p.Client
 	data, err := os.ReadFile(c.Config)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -173,6 +201,15 @@ func Apply(p Plan) error {
 // Remove takes the jot entry out of the client's config. It reports
 // whether there was anything to remove.
 func Remove(c Client) (bool, error) {
+	a, err := removeServer(c)
+	if err != nil {
+		return a, err
+	}
+	b, err := removeRules(c)
+	return a || b, err
+}
+
+func removeServer(c Client) (bool, error) {
 	data, err := os.ReadFile(c.Config)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil

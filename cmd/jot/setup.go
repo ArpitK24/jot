@@ -40,6 +40,9 @@ func runSetup(args []string, stdin io.Reader, stdout io.Writer) error {
 				fmt.Fprintf(stdout, "  %-15s %v\n", c.Name, err)
 			case removed:
 				fmt.Fprintf(stdout, "  %-15s removed from %s\n", c.Name, tilde(c.Config))
+				if c.Rules != "" {
+					fmt.Fprintf(stdout, "  %-15s and its block in %s, if any\n", "", tilde(c.Rules))
+				}
 			}
 		}
 		return nil
@@ -68,6 +71,12 @@ func runSetup(args []string, stdin io.Reader, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "\n%s\n", tilde(p.Client.Config))
 		for _, line := range strings.Split(strings.TrimRight(p.Snippet, "\n"), "\n") {
 			fmt.Fprintln(stdout, strings.TrimRight("+ "+line, " "))
+		}
+		if p.Rules {
+			fmt.Fprintf(stdout, "\n%s  (so the agent checks jot on its own)\n", tilde(p.Client.Rules))
+			for _, line := range strings.Split(strings.TrimRight(setup.RulesBlock, "\n"), "\n") {
+				fmt.Fprintln(stdout, strings.TrimRight("+ "+line, " "))
+			}
 		}
 	}
 	if *dry {
