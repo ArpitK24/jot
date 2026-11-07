@@ -36,7 +36,7 @@ No cloud, no account, no database: one `.md` file per memory, versioned in git.
 3. **Restart those tools.** That's it. From now on they are told to recall your
    preferences before a task and to save new ones as you work.
 
-To check that everything is wired up, run `jot doctor` (in the next release).
+To check that everything is wired up, run `jot doctor`.
 
 ## What it looks like
 
@@ -157,7 +157,7 @@ instructions file, which the agent reads at the start of every session:
 `~/.gemini/GEMINI.md` (Antigravity). Undo both with `jot setup --undo`. To
 configure a tool by hand, see [docs/setup.md](docs/setup.md).
 
-From the next release, `jot doctor` checks the store, each tool's entry and instructions block, that
+`jot doctor` checks the store, each tool's entry and instructions block, that
 the configured `jot` exists and answers MCP requests, and semantic search, and
 prints the exact command that fixes each problem:
 
@@ -199,15 +199,15 @@ Use pnpm, never npm.
 
 Recall uses BM25 ranking with boosts for tag matches and recent updates,
 across project memories and global ones, and says which store each result
-came from (labels from the next release). An agent started inside a repo with a `.jot` folder gets that
-repo's memories; from the next release, clients that report their workspace
+came from. An agent started inside a repo with a `.jot` folder gets that
+repo's memories; clients that report their workspace
 through MCP roots get them even when they start jot elsewhere.
 
 ### MCP tools
 
 | Tool       | What it does                                         |
 |------------|------------------------------------------------------|
-| `remember` | Save one preference, decision, fact or note. If a similar memory exists, it saves nothing and points to that one instead. From the next release it refuses empty text, more than 600 characters, and anything that looks like a key or password |
+| `remember` | Save one preference, decision, fact or note. If a similar memory exists, it saves nothing and points to that one instead. It refuses empty text, more than 600 characters, and anything that looks like a key or password |
 | `recall`   | Search memory for what's relevant to the task        |
 | `update`   | Rewrite a memory that changed                        |
 | `forget`   | Delete a memory                                      |
