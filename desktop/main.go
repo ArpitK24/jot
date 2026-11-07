@@ -46,10 +46,33 @@ func (w *Window) Confirm(title, message string) bool {
 	return err == nil && (res == "Yes" || res == "Ok")
 }
 
+// ApplyTheme matches the native title bar to the page: "light", "dark"
+// or "system".
+func (w *Window) ApplyTheme(theme string) {
+	switch theme {
+	case "dark":
+		wruntime.WindowSetDarkTheme(w.ctx)
+	case "light":
+		wruntime.WindowSetLightTheme(w.ctx)
+	default:
+		wruntime.WindowSetSystemDefaultTheme(w.ctx)
+	}
+}
+
+// Quit closes the app, so an update's installer can replace it.
+func (w *Window) Quit() { wruntime.Quit(w.ctx) }
+
 func main() {
 	app := NewApp(prefsPath())
 	win := &Window{app: app}
 	paper := &options.RGBA{R: 0xFB, G: 0xFA, B: 0xF7, A: 0xFF}
+	theme := windows.SystemDefault
+	switch app.prefs.Theme {
+	case "dark":
+		paper, theme = &options.RGBA{R: 0x1A, G: 0x19, B: 0x17, A: 0xFF}, windows.Dark
+	case "light":
+		theme = windows.Light
+	}
 	err := wails.Run(&options.App{
 		Title:            "jot",
 		Width:            1280,
@@ -61,7 +84,7 @@ func main() {
 		OnStartup:        func(ctx context.Context) { win.ctx = ctx },
 		Bind:             []interface{}{app, win},
 		Windows: &windows.Options{
-			Theme:                windows.Light,
+			Theme:                theme,
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
 			CustomTheme: &windows.ThemeSettings{
@@ -71,12 +94,17 @@ func main() {
 				LightModeTitleBarInactive:  windows.RGB(0xF2, 0xF0, 0xEB),
 				LightModeTitleTextInactive: windows.RGB(0x8C, 0x87, 0x7D),
 				LightModeBorderInactive:    windows.RGB(0xE5, 0xE1, 0xD9),
+				DarkModeTitleBar:           windows.RGB(0x12, 0x11, 0x10),
+				DarkModeTitleText:          windows.RGB(0xEC, 0xE8, 0xE1),
+				DarkModeBorder:             windows.RGB(0x2A, 0x28, 0x25),
+				DarkModeTitleBarInactive:   windows.RGB(0x15, 0x14, 0x12),
+				DarkModeTitleTextInactive:  windows.RGB(0x85, 0x7F, 0x75),
+				DarkModeBorderInactive:     windows.RGB(0x22, 0x21, 0x1E),
 			},
 		},
 		Mac: &mac.Options{
-			TitleBar:   mac.TitleBarHiddenInset(),
-			Appearance: mac.NSAppearanceNameAqua,
-			About:      &mac.AboutInfo{Title: "jot", Message: "Shared memory for your AI tools."},
+			TitleBar: mac.TitleBarHiddenInset(),
+			About:    &mac.AboutInfo{Title: "jot", Message: "Shared memory for your AI tools."},
 		},
 	})
 	if err != nil {

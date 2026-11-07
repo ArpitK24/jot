@@ -87,6 +87,7 @@ type State struct {
 	OnPath    bool        `json:"onPath"`
 	Connected int         `json:"connected"`
 	PrefsFile string      `json:"prefsFile"`
+	Theme     string      `json:"theme"` // system | light | dark
 }
 
 const pinTag = "pinned"
@@ -133,7 +134,7 @@ func toNote(s openStore, m *store.Memory) Note {
 
 // State reports the app's setup: stores, git, CLI and connected tools.
 func (a *App) State() State {
-	st := State{Version: version, OS: runtime.GOOS, Onboarded: a.prefs.Onboarded, PrefsFile: a.prefs.path}
+	st := State{Version: version, OS: runtime.GOOS, Onboarded: a.prefs.Onboarded, PrefsFile: a.prefs.path, Theme: a.themeName()}
 	_, err := exec.LookPath("git")
 	st.GitFound = err == nil
 	for _, s := range a.stores() {

@@ -10,9 +10,12 @@ import (
 // prefs is what the desktop app remembers between launches. It lives in
 // the OS config folder, never inside a memory store.
 type prefs struct {
-	Onboarded bool     `json:"onboarded"`
-	Projects  []string `json:"projects"`  // folders that hold a .jot store
-	Dismissed []string `json:"dismissed"` // duplicate pairs marked "keep both"
+	Onboarded     bool     `json:"onboarded"`
+	Projects      []string `json:"projects"`                // folders that hold a .jot store
+	Dismissed     []string `json:"dismissed"`               // duplicate pairs marked "keep both"
+	Theme         string   `json:"theme,omitempty"`         // "", "light" or "dark"; "" follows the system
+	SkipVersion   string   `json:"skipVersion,omitempty"`   // update banner hidden for this version
+	NoUpdateCheck bool     `json:"noUpdateCheck,omitempty"` // don't look for updates on launch
 
 	path string
 	mu   sync.Mutex
