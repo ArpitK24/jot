@@ -111,12 +111,16 @@ function md(src) {
   const lines = src.replace(/\r\n/g, '\n').split('\n');
   const out = [];
   let i = 0;
-  const inline = t => esc(t)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-  while (i < lines.length) {
+  // Code spans are set aside first, so a * or _ inside one is never emphasis.
+  const inline = t => {
+    const codes = [];
+    return esc(t)
+      .replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return '\u0000' + (codes.length - 1) + '\u0000'; })
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+      .replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[+i]}</code>`);
+  };  while (i < lines.length) {
     const l = lines[i];
     if (/^```/.test(l)) {
       const buf = []; i++;
