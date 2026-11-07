@@ -1,7 +1,9 @@
 name: desktop
 
-# Builds the Windows desktop app and its installer as a test artifact.
-# Nothing here publishes a release.
+# Builds the Windows desktop app and its installer. Pushes to main upload a
+# test artifact only. A desktop/v* tag (e.g. desktop/v0.3.0) also publishes a
+# GitHub release with the installer. It does not touch the MCP Registry,
+# which only follows plain v* tags (release.yml).
 on:
   workflow_dispatch:
     inputs:
@@ -9,6 +11,7 @@ on:
         description: "Version to stamp (default: 0.3.0-dev.<sha>)"
         required: false
   push:
+    tags: ["desktop/v*"]
     branches: [main]
     paths:
       - "desktop/**"
@@ -50,6 +53,7 @@ jobs:
       - name: version
         run: |
           v="${{ github.event.inputs.version }}"
+          case "$GITHUB_REF" in refs/tags/desktop/v*) v="${GITHUB_REF#refs/tags/desktop/v}";; esac
           [ -z "$v" ] && v="0.3.0-dev.${GITHUB_SHA::7}"
           echo "VERSION=$v" >> "$GITHUB_ENV"
           echo "NUMVERSION=$(echo "$v" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')" >> "$GITHUB_ENV"
@@ -97,3 +101,39 @@ jobs:
           name: jot-windows-x64-setup
           path: dist/*-setup.exe
           if-no-files-found: error
+
+  release:
+    needs: windows
+    if: startsWith(github.ref, 'refs/tags/desktop/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: jot-windows-x64-setup
+          path: dist
+      - name: publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          v="${tag#desktop/v}"
+          (cd dist && sha256sum *-setup.exe > SHA256SUMS.txt)
+          cat > notes.md <<EOF
+          The jot desktop app for Windows (x64), with the jot command-line tool included.
+
+          **Install:** download \`$(cd dist && ls *-setup.exe)\` and run it. It installs for your user only, with no admin prompt, adds \`jot\` to your PATH and offers to connect Claude Code, Cursor, Codex, Antigravity and Claude Desktop.
+
+          **Unsigned build:** Windows SmartScreen may warn on first run. Click *More info*, then *Run anyway*.
+
+          **Needs:** Windows 10 or 11 with WebView2 (built in on Windows 11). Git for Windows is optional and turns on note history.
+
+          **What's in it:** a library of every note your AI tools saved, search, pin, edit with history, side-by-side duplicate review with merge, a Ctrl+K command palette, and one-click tool setup.
+
+          Uninstalling removes jot from your tools and PATH. Your notes in \`~/.jot\` stay.
+          EOF
+          sed -i 's/^          //' notes.md
+          gh release create "$tag" dist/*-setup.exe dist/SHA256SUMS.txt \
+            --title "jot desktop $v for Windows" --notes-file notes.md --latest=false
