@@ -57,6 +57,15 @@ Usage:
       --undo                      remove jot from those tools again
   jot doctor                      check the store, each tool's connection and the server
       --no-serve                  skip starting "jot serve" to test it
+  jot ask [flags] <question>      ask your notes; the answer streams from a model
+      -m, --model provider/model  e.g. ollama/qwen2.5:3b, openai/gpt-4o-mini
+      -c, --chat  <id>            continue a saved chat
+      --no-recall                 don't look up notes or earlier chats
+  jot chats [show|rm <id>]        list saved chats, print or delete one
+  jot models                      list models from Ollama, OpenAI-compatible, Anthropic
+      default <provider/model>    set the default model
+      url <provider> <url>        point a provider elsewhere (OpenRouter, Groq, LM Studio)
+      key openai|anthropic        save an API key from stdin (outside the store, 0600)
   jot serve                       run the MCP server on stdio
   jot version
 `
@@ -249,6 +258,15 @@ func run(argv []string, stdin io.Reader, stdout io.Writer) error {
 
 	case "doctor":
 		return runDoctor(stores, args, stdout)
+
+	case "ask":
+		return runAsk(stores, args, stdin, stdout)
+
+	case "chats":
+		return runChats(args, stdout)
+
+	case "models":
+		return runModels(args, stdin, stdout)
 
 	case "serve":
 		src := os.Getenv("JOT_SOURCE")
