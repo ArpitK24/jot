@@ -104,6 +104,9 @@ func (s *Session) Send(ctx context.Context, c *Conversation, text string, opt Op
 	}
 	out, err := prov.Stream(ctx, chat.Request{Model: m.Model, Messages: Messages(c, reply.Recall, s.now())}, onDelta)
 	reply.Stopped = errors.Is(err, context.Canceled)
+	if err == nil && strings.TrimSpace(out) == "" {
+		err = errors.New(m.Model + " returned an empty reply; try again or pick another model")
+	}
 	if strings.TrimSpace(out) != "" {
 		t := Turn{Role: Assistant, Model: ref, At: s.now().UTC().Truncate(time.Second), Content: strings.TrimSpace(out), Stopped: reply.Stopped || err != nil}
 		for _, n := range reply.Recall.Notes {

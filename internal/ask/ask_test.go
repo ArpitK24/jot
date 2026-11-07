@@ -219,3 +219,23 @@ func TestSessionErrorsKeepQuestion(t *testing.T) {
 		t.Fatal("empty first message accepted")
 	}
 }
+
+func TestSearchTextDropsQuestionWords(t *testing.T) {
+	if got := searchText("What do my notes say about package managers?"); got != "What do my package managers" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestEmptyReplyIsAnError(t *testing.T) {
+	st := newStore(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"message":{"content":"  "},"done":false}`+"\n"+`{"done":true}`+"\n")
+	}))
+	defer srv.Close()
+	reg := &chat.Registry{Config: chat.Config{Ollama: chat.OllamaConfig{URL: srv.URL}}, Keys: chat.LoadKeys(filepath.Join(t.TempDir(), "k.json"))}
+	s := &Session{Chats: &Chats{Store: st}, Registry: reg}
+	rep, err := s.Send(context.Background(), s.Chats.New(t0), "hello", Options{Model: "ollama/x"})
+	if err == nil || !strings.Contains(err.Error(), "empty reply") || rep.Turn != nil {
+		t.Fatalf("got %+v %v", rep, err)
+	}
+}
