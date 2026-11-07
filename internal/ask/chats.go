@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -221,10 +222,13 @@ func TitleFrom(text string) string {
 	return strings.TrimRight(string(r[:cut]), " ,.;:-") + "…"
 }
 
+var listMarker = regexp.MustCompile(`(?m)^\s*([-*+]|\d+[.)])\s+`)
+
 // Preview is a short line from the latest turn, for a chat list.
 func (c *Conversation) Preview() string {
 	for i := len(c.Turns) - 1; i >= 0; i-- {
-		s := oneLine(strings.NewReplacer("#", "", "*", "", "`", "", ">", "").Replace(c.Turns[i].Content))
+		s := listMarker.ReplaceAllString(c.Turns[i].Content, "")
+		s = oneLine(strings.NewReplacer("#", "", "*", "", "`", "", ">", "").Replace(s))
 		if s != "" {
 			if r := []rune(s); len(r) > 140 {
 				s = string(r[:140]) + "…"

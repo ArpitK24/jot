@@ -100,3 +100,10 @@ func TestChatsSaveListDelete(t *testing.T) {
 		t.Fatalf("after delete: %v", err)
 	}
 }
+
+func TestPreviewDropsMarkdown(t *testing.T) {
+	c := &Conversation{Turns: []Turn{{Role: Assistant, Content: "- **Warm** paper\n2. Ink `text`\n> quote"}}}
+	if p := c.Preview(); p != "Warm paper Ink text quote" {
+		t.Fatalf("preview %q", p)
+	}
+}
