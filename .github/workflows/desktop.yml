@@ -132,6 +132,8 @@ jobs:
 
           **What's in it:** a library of every note your AI tools saved, search, pin, edit with history, side-by-side duplicate review with merge, a Ctrl+K command palette, and one-click tool setup.
 
+          **Optional semantic search:** with [Ollama](https://ollama.com) running, turn it on in Settings → Search to find notes that say the same thing in other words. jot uses the small \`all-minilm\` model and falls back to keyword search when Ollama isn't there.
+
           Uninstalling removes jot from your tools and PATH. Your notes in \`~/.jot\` stay.
           EOF
           sed -i 's/^          //' notes.md
