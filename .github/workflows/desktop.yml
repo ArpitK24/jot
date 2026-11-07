@@ -96,7 +96,10 @@ jobs:
           Start-Process "$dir\jot-desktop.exe"
           Start-Sleep -Seconds 5
           $t0 = Get-Date
-          Start-Process $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CURRENTUSER","/RELAUNCH" -Wait
+          # Wait on setup itself, not with -Wait: that also waits for the jot
+          # window setup reopens, which never exits.
+          $upd = Start-Process $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CURRENTUSER","/RELAUNCH" -PassThru
+          if (-not $upd.WaitForExit(180000)) { throw "silent update hung" }
           Start-Sleep -Seconds 5
           $p = Get-Process jot-desktop -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -gt $t0 }
           if (-not $p) { throw "jot didn't reopen after a silent update" }
