@@ -25,9 +25,10 @@ import (
 	"time"
 )
 
-// Defaults for the Ollama provider.
+// Defaults for the Ollama provider. all-minilm is small (46 MB), fast on a
+// laptop CPU, and separates related from unrelated short notes clearly.
 const (
-	DefaultModel = "nomic-embed-text"
+	DefaultModel = "all-minilm"
 	DefaultURL   = "http://localhost:11434"
 	configFile   = "config.json"
 	batchSize    = 32
@@ -40,6 +41,45 @@ type Config struct {
 	Provider string `json:"provider,omitempty"` // "ollama" or "" (off)
 	Model    string `json:"model,omitempty"`
 	URL      string `json:"url,omitempty"`
+
+	// Cosine cut-offs. Each model spreads its scores differently, so the
+	// defaults come from a per-model table; set these to override it.
+	MinSimilarity  float64 `json:"min_similarity,omitempty"`  // a search match
+	DupeSimilarity float64 `json:"dupe_similarity,omitempty"` // a paraphrased duplicate
+}
+
+// tuning holds what jot knows about a model: its task prefixes and where
+// its cosine scores separate "related" from "unrelated" (measured on short
+// notes like the ones agents save).
+type tuning struct {
+	query, doc  string
+	match, dupe float64
+}
+
+var models = map[string]tuning{
+	"all-minilm":             {match: 0.25, dupe: 0.75},
+	"embeddinggemma":         {query: "task: search result | query: ", doc: "title: none | text: ", match: 0.25, dupe: 0.8},
+	"nomic-embed-text":       {query: "search_query: ", doc: "search_document: ", match: 0.6, dupe: 0.9},
+	"mxbai-embed-large":      {query: "Represent this sentence for searching relevant passages: ", match: 0.55, dupe: 0.9},
+	"snowflake-arctic-embed": {query: "Represent this sentence for searching relevant passages: ", match: 0.55, dupe: 0.93},
+}
+
+// unknown models get cautious cut-offs: fewer, surer matches.
+var fallback = tuning{match: 0.5, dupe: 0.92}
+
+func (c Config) tuning() tuning {
+	name, _, _ := strings.Cut(c.Model, ":")
+	t, ok := models[name]
+	if !ok {
+		t = fallback
+	}
+	if c.MinSimilarity > 0 {
+		t.match = c.MinSimilarity
+	}
+	if c.DupeSimilarity > 0 {
+		t.dupe = c.DupeSimilarity
+	}
+	return t
 }
 
 // On reports whether embeddings are enabled.
@@ -166,21 +206,16 @@ func (ix *Index) Query(ctx context.Context, q string) ([]float32, error) {
 	return v[0], nil
 }
 
-// nomic-embed-text is trained with task prefixes and ranks noticeably
-// better with them.
-func (ix *Index) docPrefix() string {
-	if strings.Contains(ix.cfg.Model, "nomic") {
-		return "search_document: "
-	}
-	return ""
-}
+// MatchThreshold is the cosine a semantic-only search match needs.
+func (ix *Index) MatchThreshold() float64 { return ix.cfg.tuning().match }
 
-func (ix *Index) queryPrefix() string {
-	if strings.Contains(ix.cfg.Model, "nomic") {
-		return "search_query: "
-	}
-	return ""
-}
+// DupeThreshold is the cosine above which two notes mean the same thing.
+func (ix *Index) DupeThreshold() float64 { return ix.cfg.tuning().dupe }
+
+// Some models are trained with task prefixes and rank noticeably better
+// with them.
+func (ix *Index) docPrefix() string   { return ix.cfg.tuning().doc }
+func (ix *Index) queryPrefix() string { return ix.cfg.tuning().query }
 
 func (ix *Index) vectors(ctx context.Context, texts []string, prefix string) ([][]float32, error) {
 	out := make([][]float32, len(texts))

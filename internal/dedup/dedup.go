@@ -23,10 +23,6 @@ import (
 // Threshold is the default score above which two memories count as duplicates.
 const Threshold = 0.6
 
-// SemanticThreshold is the default cosine above which two memories count
-// as saying the same thing in other words.
-const SemanticThreshold = 0.9
-
 // minShared stops very short notes ("Use Go", "Use Rust") from matching
 // on one or two words.
 const minShared = 3
@@ -76,12 +72,16 @@ func PairsWith(mems []*store.Memory, threshold float64, ix *embed.Index) ([]Pair
 		threshold = Threshold
 	}
 	vecs, err := vectors(mems, ix)
+	semMin := 2.0
+	if vecs != nil {
+		semMin = ix.DupeThreshold()
+	}
 	var all []Pair
 	for i := 0; i < len(mems); i++ {
 		for j := i + 1; j < len(mems); j++ {
 			s, sem := Similarity(mems[i].Body, mems[j].Body), false
 			if s < threshold && vecs != nil {
-				if c := embed.Cosine(vecs[i], vecs[j]); c >= SemanticThreshold {
+				if c := embed.Cosine(vecs[i], vecs[j]); c >= semMin {
 					s, sem = c, true
 				}
 			}
@@ -145,12 +145,12 @@ func SimilarWith(mems []*store.Memory, body string, threshold float64, ix *embed
 	var hits []hit
 	for i, m := range mems {
 		s := Similarity(m.Body, body)
-		if s < threshold && vecs != nil {
-			if c := embed.Cosine(vecs[0], vecs[i+1]); c >= SemanticThreshold {
-				s = c
-			}
+		if s < threshold && vecs != nil && embed.Cosine(vecs[0], vecs[i+1]) >= ix.DupeThreshold() {
+			s = embed.Cosine(vecs[0], vecs[i+1])
+			hits = append(hits, hit{m, s})
+			continue
 		}
-		if s >= threshold || (vecs != nil && s >= SemanticThreshold) {
+		if s >= threshold {
 			hits = append(hits, hit{m, s})
 		}
 	}

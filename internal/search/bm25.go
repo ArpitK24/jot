@@ -43,16 +43,17 @@ type Options struct {
 
 	// Index, when set, adds semantic matches. Nil means keyword only.
 	Index *embed.Index
-	// MinSimilarity is the cosine a semantic-only match needs (default 0.55).
+	// MinSimilarity is the cosine a semantic match needs (default: the
+	// model's own cut-off).
 	MinSimilarity float64
 	// Err, when set, receives the reason semantic search was skipped.
 	Err *error
 }
 
 const (
-	rrfK          = 60.0
-	minSimilarity = 0.55
-	semTimeout    = 20 * time.Second
+	rrfK       = 60.0
+	semMargin  = 0.3 // semantic matches must be this close to the best one
+	semTimeout = 20 * time.Second
 )
 
 // Search scores mems against query. An empty query returns the newest
@@ -178,17 +179,31 @@ func fuse(pool []*store.Memory, query string, kw []float64, opt Options) ([]floa
 	}
 	minSim := opt.MinSimilarity
 	if minSim <= 0 {
-		minSim = minSimilarity
+		minSim = opt.Index.MatchThreshold()
 	}
-	sem := make([]float64, len(pool))
+	cos := make([]float64, len(pool))
+	best := 0.0
 	for i := range pool {
-		if c := embed.Cosine(q, vecs[i]); c >= minSim {
+		cos[i] = embed.Cosine(q, vecs[i])
+		best = max(best, cos[i])
+	}
+	// Keep only clear matches: above the model's cut-off and near the best
+	// one, so a vague query doesn't drag in half the store.
+	sem := make([]float64, len(pool))
+	for i, c := range cos {
+		if c >= minSim && c >= best-semMargin {
 			sem[i] = c
 		}
 	}
 	kr, sr := ranks(kw), ranks(sem)
+	anySem := best >= minSim
 	out := make([]float64, len(pool))
 	for i := range pool {
+		// When the meaning of the query is clear, a keyword hit on a
+		// common word ("use", "works") in an unrelated note is noise.
+		if kr[i] > 0 && sr[i] == 0 && anySem && cos[i] < minSim/2 {
+			continue
+		}
 		if kr[i] > 0 {
 			out[i] += 1 / (rrfK + float64(kr[i]))
 		}

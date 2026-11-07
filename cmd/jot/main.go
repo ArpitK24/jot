@@ -50,7 +50,7 @@ Usage:
       --dry-run                   print the merged text, change nothing
   jot where                       print the stores in use
   jot embed [status|on|off|index] semantic search through a local Ollama model
-      on --model nomic-embed-text --url http://localhost:11434
+      on [--model all-minilm] [--url http://localhost:11434]
   jot setup [tools...]            connect jot to the AI tools on this machine
       --dry-run                   show the changes, write nothing
       -y, --yes                   don't ask before writing
