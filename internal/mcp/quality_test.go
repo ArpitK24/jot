@@ -83,3 +83,16 @@ func TestUpdateRefusesSecret(t *testing.T) {
 		t.Fatalf("body changed to %q", got.Body)
 	}
 }
+
+func TestInstructionsMentionScope(t *testing.T) {
+	g := store.Open(t.TempDir(), "global")
+	s := &Server{Stores: []*store.Store{g}}
+	if in := s.instructions(); !strings.Contains(in, "jot init --project") || !strings.Contains(in, "Don't save secrets") {
+		t.Errorf("global-only instructions: %s", in)
+	}
+	p := store.Open(t.TempDir(), "project")
+	s = &Server{Stores: []*store.Store{p, g}}
+	if in := s.instructions(); !strings.Contains(in, "This repo has project memory") || !strings.Contains(in, `scope "project"`) {
+		t.Errorf("project instructions: %s", in)
+	}
+}
