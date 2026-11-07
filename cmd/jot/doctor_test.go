@@ -49,10 +49,10 @@ func doctor(t *testing.T, args ...string) (string, error) {
 func TestDoctorFreshMachine(t *testing.T) {
 	fakeHome(t)
 	out, err := doctor(t, "--no-serve")
-	if err == nil {
-		t.Fatalf("want failure on a fresh machine:\n%s", out)
+	if err != nil {
+		t.Fatalf("a fresh machine has nothing broken yet, got %v:\n%s", err, out)
 	}
-	for _, want := range []string{"✗ global store", "fix: jot init", "none of the tools jot knows is installed", "semantic search  off"} {
+	for _, want := range []string{"! global store", "not created yet", "none of the tools jot knows is installed", "semantic search  off"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}

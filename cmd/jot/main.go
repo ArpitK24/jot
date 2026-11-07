@@ -69,6 +69,12 @@ func main() {
 }
 
 func run(argv []string, stdin io.Reader, stdout io.Writer) error {
+	if len(argv) == 0 {
+		if g := store.Open(store.GlobalDir(), "global"); !g.Exists() {
+			firstRun(stdout, g.Dir)
+			return nil
+		}
+	}
 	if len(argv) == 0 || argv[0] == "-h" || argv[0] == "--help" || argv[0] == "help" {
 		fmt.Fprint(stdout, usage)
 		return nil
@@ -253,6 +259,22 @@ func run(argv []string, stdin io.Reader, stdout io.Writer) error {
 		return srv.Serve(stdin, stdout)
 	}
 	return fmt.Errorf("unknown command %q (try `jot help`)", cmd)
+}
+
+// firstRun greets someone who just installed jot and has no store yet.
+func firstRun(w io.Writer, dir string) {
+	fmt.Fprintf(w, `jot %s - shared memory for every AI agent
+
+jot is installed. Your memories will live in %s, one Markdown
+file each, with git history when git is installed. Nothing leaves this machine.
+
+Next:
+  jot setup     connect Claude Code, Cursor, Codex and others (shows every change, asks first)
+  jot doctor    check that everything is wired up
+
+Then restart those tools. They recall your preferences before a task and
+save new ones as you work. See every command with `+"`jot help`"+`.
+`, version, tilde(dir))
 }
 
 func pick(stores []*store.Store, project bool) *store.Store {

@@ -101,7 +101,7 @@ func storeChecks(stores []*store.Store) []check {
 		label := st.Scope + " store"
 		if !st.Exists() {
 			if st.Scope == "global" {
-				out = append(out, check{mark: markFail, label: label, detail: tilde(st.Dir) + " does not exist", fix: "jot init"})
+				out = append(out, check{mark: markWarn, label: label, detail: tilde(st.Dir) + " not created yet; jot setup or the first save creates it", fix: "jot init   (optional)"})
 			}
 			continue
 		}
