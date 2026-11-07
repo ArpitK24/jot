@@ -249,7 +249,7 @@ func run(argv []string, stdin io.Reader, stdout io.Writer) error {
 		if src == "" {
 			src = "mcp"
 		}
-		srv := &mcp.Server{Stores: stores, Version: version, Source: src, Index: semantic()}
+		srv := &mcp.Server{Version: version, Source: src, Index: semantic(), Dir: cwd, Resolve: store.Stores}
 		return srv.Serve(stdin, stdout)
 	}
 	return fmt.Errorf("unknown command %q (try `jot help`)", cmd)

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
+	"path/filepath"
 	"strings"
 
 	"github.com/ArpitK24/jot/internal/dedup"
@@ -24,6 +26,15 @@ type Server struct {
 	Version string
 	Source  string       // default source label when a client doesn't send one
 	Index   *embed.Index // semantic search; nil means keyword only
+
+	// Dir and Resolve, when Resolve is set, replace Stores: the stores are
+	// worked out from Dir on every call, so a .jot folder created during a
+	// session is picked up, and Dir follows the workspace root the client
+	// reports through MCP roots.
+	Dir     string
+	Resolve func(dir string) []*store.Store
+
+	rootsAsked bool
 }
 
 type request struct {
@@ -31,7 +42,11 @@ type request struct {
 	ID      json.RawMessage `json:"id,omitempty"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"` // set on replies to our own requests
 }
+
+// rootsID is the id of jot's own roots/list request to the client.
+const rootsID = `"jot-roots"`
 
 type response struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -60,7 +75,20 @@ func (s *Server) Serve(r io.Reader, w io.Writer) error {
 			enc.Encode(response{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcError{-32700, "parse error"}})
 			continue
 		}
+		if req.Method == "" { // a reply to a request jot sent
+			if string(req.ID) == rootsID {
+				s.useRoots(req.Result)
+			}
+			continue
+		}
 		if len(req.ID) == 0 { // notification: no reply
+			if req.Method == "notifications/initialized" || req.Method == "notifications/roots/list_changed" {
+				if s.rootsAsked {
+					if err := enc.Encode(map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(rootsID), "method": "roots/list"}); err != nil {
+						return err
+					}
+				}
+			}
 			continue
 		}
 		res, rerr := s.handle(req)
@@ -80,6 +108,13 @@ func (s *Server) Serve(r io.Reader, w io.Writer) error {
 func (s *Server) handle(req request) (any, *rpcError) {
 	switch req.Method {
 	case "initialize":
+		var p struct {
+			Capabilities struct {
+				Roots json.RawMessage `json:"roots"`
+			} `json:"capabilities"`
+		}
+		json.Unmarshal(req.Params, &p)
+		s.rootsAsked = s.Resolve != nil && len(p.Capabilities.Roots) > 0 && string(p.Capabilities.Roots) != "null"
 		return map[string]any{
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
@@ -145,7 +180,7 @@ func (s *Server) call(name string, raw json.RawMessage) (string, error) {
 		if !a.Force {
 			if sim, _ := dedup.SimilarWith(s.all(), a.Text, 0, s.Index); len(sim) > 0 {
 				m := sim[0]
-				return fmt.Sprintf("Not saved: this looks like an existing memory.\n[%s] (%s, %s)\n%s\n\n"+
+				return fmt.Sprintf("Not saved: this looks like an existing memory.\n[%s] (%s, from %s memory)\n%s\n\n"+
 					"If it adds or changes something, call update with id %s. "+
 					"If it really is a separate memory, call remember again with force: true.",
 					m.ID, m.Kind, m.Scope, m.Body, m.ID), nil
@@ -206,7 +241,7 @@ func Format(res []search.Result) string {
 	var b strings.Builder
 	for _, r := range res {
 		m := r.Memory
-		fmt.Fprintf(&b, "[%s] (%s, %s", m.ID, m.Kind, m.Scope)
+		fmt.Fprintf(&b, "[%s] (%s, from %s memory", m.ID, m.Kind, m.Scope)
 		if len(m.Tags) > 0 {
 			fmt.Fprintf(&b, ", tags: %s", strings.Join(m.Tags, ", "))
 		}
@@ -217,9 +252,54 @@ func Format(res []search.Result) string {
 	return strings.TrimSpace(b.String())
 }
 
+// stores returns the stores in use: project first, then global.
+func (s *Server) stores() []*store.Store {
+	if s.Resolve != nil {
+		return s.Resolve(s.Dir)
+	}
+	return s.Stores
+}
+
+// useRoots moves Dir to the first workspace root the client reported that
+// has project memory, so a client that starts jot outside the repo still
+// gets that repo's memories.
+func (s *Server) useRoots(result json.RawMessage) {
+	var r struct {
+		Roots []struct {
+			URI string `json:"uri"`
+		} `json:"roots"`
+	}
+	if json.Unmarshal(result, &r) != nil {
+		return
+	}
+	for _, root := range r.Roots {
+		dir, ok := fileURIPath(root.URI)
+		if !ok {
+			continue
+		}
+		if _, found := store.FindProjectDir(dir); found {
+			s.Dir = dir
+			return
+		}
+	}
+}
+
+// fileURIPath turns file:///home/me/repo or file:///C:/repo into a path.
+func fileURIPath(uri string) (string, bool) {
+	u, err := url.Parse(uri)
+	if err != nil || u.Scheme != "file" || u.Path == "" {
+		return "", false
+	}
+	p := u.Path
+	if len(p) >= 3 && p[0] == '/' && p[2] == ':' { // /C:/repo
+		p = p[1:]
+	}
+	return filepath.FromSlash(p), true
+}
+
 func (s *Server) all() []*store.Memory {
 	var out []*store.Memory
-	for _, st := range s.Stores {
+	for _, st := range s.stores() {
 		ms, _ := st.List()
 		out = append(out, ms...)
 	}
@@ -230,7 +310,7 @@ func (s *Server) pick(scope string) (*store.Store, error) {
 	if scope == "" {
 		scope = "global"
 	}
-	for _, st := range s.Stores {
+	for _, st := range s.stores() {
 		if st.Scope == scope {
 			return st, nil
 		}
@@ -243,7 +323,7 @@ func (s *Server) pick(scope string) (*store.Store, error) {
 }
 
 func (s *Server) find(id string) (*store.Store, error) {
-	for _, st := range s.Stores {
+	for _, st := range s.stores() {
 		if _, err := st.Get(id); err == nil {
 			return st, nil
 		}
@@ -271,7 +351,7 @@ func (s *Server) instructions() string {
 }
 
 func (s *Server) projectStore() *store.Store {
-	for _, st := range s.Stores {
+	for _, st := range s.stores() {
 		if st.Scope == "project" {
 			return st
 		}
