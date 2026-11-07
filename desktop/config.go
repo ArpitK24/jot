@@ -16,6 +16,7 @@ type prefs struct {
 	Theme         string   `json:"theme,omitempty"`         // "", "light" or "dark"; "" follows the system
 	SkipVersion   string   `json:"skipVersion,omitempty"`   // update banner hidden for this version
 	NoUpdateCheck bool     `json:"noUpdateCheck,omitempty"` // don't look for updates on launch
+	AskModel      string   `json:"askModel,omitempty"`      // model last picked in Ask
 
 	path string
 	mu   sync.Mutex
