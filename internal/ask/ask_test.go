@@ -239,3 +239,25 @@ func TestEmptyReplyIsAnError(t *testing.T) {
 		t.Fatalf("got %+v %v", rep, err)
 	}
 }
+
+func TestFollowUpUsesPreviousQuestionOnlyWhenNeeded(t *testing.T) {
+	st := newStore(t)
+	deploy, _ := st.Add("Deploy the API by merging to main", "decision", nil, "cli")
+	pnpm, _ := st.Add("Use pnpm, never npm", "preference", nil, "cli")
+	f := &fakeOllama{}
+	srv := f.server(t)
+	reg := &chat.Registry{Config: chat.Config{Ollama: chat.OllamaConfig{URL: srv.URL}}, Keys: chat.LoadKeys(filepath.Join(t.TempDir(), "k.json"))}
+	s := &Session{Chats: &Chats{Store: st}, Registry: reg, Notes: func() []*store.Memory { ms, _ := st.List(); return ms }}
+	c := s.Chats.New(t0)
+	if rep, _ := s.Send(context.Background(), c, "How do I deploy the API?", Options{}); len(rep.Recall.Notes) != 1 || rep.Recall.Notes[0].ID != deploy.ID {
+		t.Fatalf("first: %+v", rep.Recall.Notes)
+	}
+	// A new subject: the previous question must not drag the deploy note in.
+	if rep, _ := s.Send(context.Background(), c, "Which is better, pnpm or npm?", Options{}); len(rep.Recall.Notes) != 1 || rep.Recall.Notes[0].ID != pnpm.ID {
+		t.Fatalf("new subject: %+v", rep.Recall.Notes)
+	}
+	// A bare follow-up finds nothing alone, so the previous question helps.
+	if rep, _ := s.Send(context.Background(), c, "and why?", Options{}); len(rep.Recall.Notes) != 1 || rep.Recall.Notes[0].ID != pnpm.ID {
+		t.Fatalf("follow-up: %+v", rep.Recall.Notes)
+	}
+}

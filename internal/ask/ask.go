@@ -92,7 +92,15 @@ func (s *Session) Send(ctx context.Context, c *Conversation, text string, opt Op
 	}
 	if !opt.NoRecall {
 		chats, _ := s.Chats.List()
-		reply.Recall = Recall(mems, chats, c.ID, Query(c, question), s.Index)
+		// The question alone first: adding the previous one pulls in notes
+		// about that. A follow-up that finds nothing on its own ("and on
+		// Windows?") gets the previous question as context.
+		reply.Recall = Recall(mems, chats, c.ID, question, s.Index)
+		if len(reply.Recall.Notes) == 0 {
+			if q := Query(c, question); q != question {
+				reply.Recall = Recall(mems, chats, c.ID, q, s.Index)
+			}
+		}
 	}
 	if opt.OnRecall != nil {
 		opt.OnRecall(reply.Recall, ref)

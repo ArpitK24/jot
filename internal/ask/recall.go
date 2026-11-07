@@ -39,9 +39,9 @@ type Recalled struct {
 	Skipped  error // why semantic matching was skipped, when it was on
 }
 
-// Query is what Ask searches with: the new message plus the start of the
-// previous question, so a follow-up like "and on Windows?" still finds the
-// notes the conversation is about.
+// Query is the new message plus the start of the previous question. Ask
+// searches with it when the message alone finds nothing, so a follow-up
+// like "and on Windows?" still finds the notes the conversation is about.
 func Query(c *Conversation, latest string) string {
 	q := strings.TrimSpace(latest)
 	if c == nil {
