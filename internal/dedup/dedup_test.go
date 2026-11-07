@@ -100,3 +100,20 @@ func TestParaphrases(t *testing.T) {
 		t.Fatalf("unrelated note flagged: %v", sim[0].ID)
 	}
 }
+
+func TestChatFilesAreNotCandidates(t *testing.T) {
+	st := store.Open(t.TempDir(), "global")
+	st.Add(pnpmA, "preference", nil, "test")
+	// A chat in the store's chats/ folder quoting the same note word for word.
+	chat := "---\nid: c1\ntitle: pnpm\n---\n\n### You\n<!-- jot:turn role=user at=2026-11-08T00:00:00Z -->\n\n" + pnpmA + "\n"
+	if err := st.WriteFile("chats/c1.md", []byte(chat), "ask c1"); err != nil {
+		t.Fatal(err)
+	}
+	mems, _ := st.List()
+	if len(mems) != 1 || len(Pairs(mems, Threshold)) != 0 {
+		t.Fatalf("chat treated as a memory: %d memories", len(mems))
+	}
+	if sim := Similar(mems, pnpmA, 0); len(sim) != 1 || sim[0].Body != pnpmA {
+		t.Fatalf("similar: %+v", sim)
+	}
+}
