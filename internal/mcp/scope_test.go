@@ -113,3 +113,30 @@ func TestFileURIPath(t *testing.T) {
 		}
 	}
 }
+
+// With per-call store resolution (the way jot serve runs), chats in the
+// global store's chats/ folder still never reach recall or list.
+func TestResolvedStoresSkipChats(t *testing.T) {
+	t.Setenv("JOT_HOME", filepath.Join(t.TempDir(), "global"))
+	g := store.Open(store.GlobalDir(), "global")
+	if _, err := g.Add("Run the Go tests with -race everywhere.", "preference", nil, "test"); err != nil {
+		t.Fatal(err)
+	}
+	chat := "---\nid: c1\ntitle: go tests\n---\n\n### You\n<!-- jot:turn role=user at=2026-11-08T00:00:00Z -->\n\nhow do I run the go tests? quokka-marker\n"
+	if err := g.WriteFile("chats/c1.md", []byte(chat), "ask c1"); err != nil {
+		t.Fatal(err)
+	}
+	dir := repo(t, "This repo's Go tests need TEST_DB_URL set.")
+	p := store.Open(filepath.Join(dir, store.DirName), "project")
+	if err := p.WriteFile("chats/c2.md", []byte(strings.Replace(chat, "c1", "c2", 1)), "ask c2"); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Dir: dir, Resolve: store.Stores}
+	res := rpc(t, s, call("1", "recall", `{"query":"go tests quokka-marker"}`), call("2", "list", `{}`))
+	for i, r := range res {
+		got := text(r)
+		if strings.Contains(got, "quokka") || !strings.Contains(got, "TEST_DB_URL") || !strings.Contains(got, "-race") {
+			t.Fatalf("response %d:\n%s", i, got)
+		}
+	}
+}
