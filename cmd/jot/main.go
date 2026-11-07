@@ -55,6 +55,8 @@ Usage:
       --dry-run                   show the changes, write nothing
       -y, --yes                   don't ask before writing
       --undo                      remove jot from those tools again
+  jot doctor                      check the store, each tool's connection and the server
+      --no-serve                  skip starting "jot serve" to test it
   jot serve                       run the MCP server on stdio
   jot version
 `
@@ -238,6 +240,9 @@ func run(argv []string, stdin io.Reader, stdout io.Writer) error {
 
 	case "setup":
 		return runSetup(args, stdin, stdout)
+
+	case "doctor":
+		return runDoctor(stores, args, stdout)
 
 	case "serve":
 		src := os.Getenv("JOT_SOURCE")
