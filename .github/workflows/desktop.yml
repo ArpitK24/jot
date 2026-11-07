@@ -91,6 +91,19 @@ jobs:
           $path = (Get-ItemProperty HKCU:\Environment).Path
           if ($path -notlike "*$dir*") { throw "jot not added to user PATH" }
           if (-not (Test-Path "$env:USERPROFILE\.jot")) { throw "store not created" }
+          # The in-app updater reruns setup silently with /RELAUNCH over a
+          # running copy: it must upgrade in place and open jot again.
+          Start-Process "$dir\jot-desktop.exe"
+          Start-Sleep -Seconds 5
+          $t0 = Get-Date
+          Start-Process $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CURRENTUSER","/RELAUNCH" -Wait
+          Start-Sleep -Seconds 5
+          $p = Get-Process jot-desktop -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -gt $t0 }
+          if (-not $p) { throw "jot didn't reopen after a silent update" }
+          $p | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          if (-not (Test-Path "$dir\jot-desktop.exe")) { throw "desktop app missing after update" }
+          Write-Host "silent update and relaunch OK"
           Start-Process "$dir\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -Wait
           Start-Sleep -Seconds 3
           $path = (Get-ItemProperty HKCU:\Environment).Path
@@ -133,6 +146,10 @@ jobs:
           **What's in it:** a library of every note your AI tools saved, search, pin, edit with history, side-by-side duplicate review with merge, a Ctrl+K command palette, and one-click tool setup.
 
           **Optional semantic search:** with [Ollama](https://ollama.com) running, turn it on in Settings → Search to find notes that say the same thing in other words. jot uses the small \`all-minilm\` model and falls back to keyword search when Ollama isn't there.
+
+          **Updates:** jot checks GitHub when it opens and offers *Update and restart*. The download is checked against \`SHA256SUMS.txt\` before it installs, and your notes are never touched. Turn the check off in Settings → General. Coming from 0.3.0, which has no updater, install this one by hand once.
+
+          **Appearance:** light, dark, or follow the system, in Settings → General.
 
           Uninstalling removes jot from your tools and PATH. Your notes in \`~/.jot\` stay.
           EOF

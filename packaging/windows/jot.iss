@@ -52,6 +52,7 @@ UninstallDisplayName=jot {#AppVersion}
 UninstallDisplayIcon={app}\jot-desktop.exe
 SetupIconFile=..\..\desktop\build\windows\icon.ico
 CloseApplications=yes
+RestartApplications=no
 
 [Tasks]
 Name: "addtopath"; Description: "Add the jot command to my PATH (use it from any terminal)"
@@ -70,6 +71,8 @@ Name: "{autodesktop}\jot"; Filename: "{app}\jot-desktop.exe"; Tasks: desktopicon
 [Run]
 Filename: "{app}\jot.exe"; Parameters: "init"; Flags: runhidden; StatusMsg: "Creating your memory store..."
 Filename: "{app}\jot-desktop.exe"; Description: "Open jot"; Flags: nowait postinstall skipifsilent
+; The app's own updater runs setup silently with /RELAUNCH: open jot again when done.
+Filename: "{app}\jot-desktop.exe"; Flags: nowait; Check: Relaunch
 
 [UninstallRun]
 Filename: "{app}\jot.exe"; Parameters: "setup --undo"; Flags: runhidden; RunOnceId: "jotSetupUndo"
@@ -80,6 +83,11 @@ FinishedLabel=jot is installed.%n%nOpen jot to connect your AI tools. The jot co
 [Code]
 const
   EnvKey = 'Environment';
+
+function Relaunch: Boolean;
+begin
+  Result := WizardSilent and (Pos('/RELAUNCH', Uppercase(GetCmdTail)) > 0);
+end;
 
 function PathHas(Paths, Dir: string): Boolean;
 begin
