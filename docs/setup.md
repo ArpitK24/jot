@@ -10,6 +10,10 @@ here if you'd rather do it yourself, or use a tool it doesn't know yet.
 Desktop apps on macOS don't see your shell's PATH, so use the full path from
 `which jot` as the command. `jot setup` does this for you.
 
+After any change, restart the tool, then run `jot doctor` (from the next
+release). It checks each tool's entry, that the command it names exists and
+answers MCP requests, and prints the exact fix for anything wrong.
+
 ## Claude Code
 
 ```sh
@@ -46,7 +50,9 @@ Command `jot`, args `["serve"]`, transport stdio.
 ## Nudge the agent to use it
 
 MCP clients pass jot's server instructions to the model, but a line in your
-agent rules file (`CLAUDE.md`, `.cursorrules`, `AGENTS.md`) makes it reliable:
+agent rules file makes it reliable. `jot setup` adds a marked block to
+`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md` for you.
+For other tools (for example Cursor's rules, or a repo's `AGENTS.md`), add:
 
 ```
 Before starting a task, call jot's `recall` with what you're about to do.

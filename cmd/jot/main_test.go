@@ -85,8 +85,12 @@ func TestSetup(t *testing.T) {
 	if out := jot(t, "n\n", "setup", "--command", "/bin/jot"); !strings.Contains(out, "Nothing changed") {
 		t.Fatalf("declined:\n%s", out)
 	}
-	if out := jot(t, "y\n", "setup", "--command", "/bin/jot"); !strings.Contains(out, "Codex           connected") {
+	t.Setenv("JOT_HOME", filepath.Join(home, ".jot"))
+	if out := jot(t, "y\n", "setup", "--command", "/bin/jot"); !strings.Contains(out, "Codex           connected") || !strings.Contains(out, "Memory store    created") {
 		t.Fatalf("apply:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".jot")); err != nil {
+		t.Fatal("setup did not create the store")
 	}
 	if out := jot(t, "", "setup", "--command", "/bin/jot"); !strings.Contains(out, "Nothing to change") {
 		t.Fatalf("second run:\n%s", out)
@@ -123,5 +127,21 @@ func TestDupesAndMerge(t *testing.T) {
 	}
 	if out := jot(t, "", "dupes"); !strings.Contains(out, "no duplicates") {
 		t.Fatalf("after merge:\n%s", out)
+	}
+}
+
+func TestFirstRun(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("JOT_HOME", filepath.Join(home, ".jot"))
+	chdir(t, t.TempDir())
+	out := jot(t, "")
+	for _, want := range []string{"jot setup", "jot doctor", filepath.Join(home, ".jot"), "jot help"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("first run missing %q:\n%s", want, out)
+		}
+	}
+	jot(t, "", "init")
+	if out := jot(t, ""); !strings.Contains(out, "Usage:") {
+		t.Errorf("after init, want usage:\n%s", out)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ArpitK24/jot/internal/setup"
+	"github.com/ArpitK24/jot/internal/store"
 )
 
 // runSetup connects jot to the AI tools found on this machine.
@@ -103,7 +104,13 @@ func runSetup(args []string, stdin io.Reader, stdout io.Writer) error {
 	if failed > 0 {
 		return fmt.Errorf("%d %s failed", failed, plural(failed, "tool", "tools"))
 	}
-	fmt.Fprintln(stdout, "\nRestart those tools to load jot. Undo any time with `jot setup --undo`.")
+	if g := store.Open(store.GlobalDir(), "global"); !g.Exists() {
+		if err := g.Init(); err != nil {
+			return fmt.Errorf("creating the memory store: %w", err)
+		}
+		fmt.Fprintf(stdout, "  %-15s created at %s\n", "Memory store", tilde(g.Dir))
+	}
+	fmt.Fprintln(stdout, "\nRestart those tools to load jot. Check with `jot doctor`; undo any time with `jot setup --undo`.")
 	return nil
 }
 

@@ -1,27 +1,122 @@
 # jot
 
-**Shared, local-first memory for every AI agent.**
+**One memory for all your AI coding agents, kept as plain Markdown files on your machine.**
 
-Tell Claude Code you use pnpm, and Cursor already knows it tomorrow. jot is one
-memory on your machine that every MCP-capable agent can read and write. It's
-stored as plain Markdown and versioned in git.
+Tell Claude Code you use pnpm, and Cursor already knows it tomorrow. jot is a
+small local MCP server that every agent you connect reads from and writes to.
+No cloud, no account, no database: one `.md` file per memory, versioned in git.
+
+## Quickstart (about 60 seconds)
+
+1. **Install** the CLI (macOS or Linux):
+
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/ArpitK24/jot/main/scripts/install.sh | sh
+   ```
+
+   On Windows, in PowerShell:
+
+   ```powershell
+   irm https://raw.githubusercontent.com/ArpitK24/jot/main/scripts/install.ps1 | iex
+   ```
+
+   Both download the newest release from GitHub, check its SHA-256 against the
+   release's `checksums.txt`, and install one binary. Other ways are under
+   [Install](#install).
+
+2. **Connect your tools:**
+
+   ```sh
+   jot setup
+   ```
+
+   It finds Claude Code, Cursor, Codex, Antigravity and Claude Desktop, prints
+   the exact lines it will add to each config, and asks once before writing.
+
+3. **Restart those tools.** That's it. From now on they are told to recall your
+   preferences before a task and to save new ones as you work.
+
+To check that everything is wired up, run `jot doctor` (in the next release).
+
+## What it looks like
+
+Monday, in Claude Code:
 
 ```
-$ jot add -k preference -t js "Use pnpm, never npm"
-remembered 20261103-134832-fb9e (global)
-
-$ jot search "package manager"
-20261103-134832-fb9e  preference global  Use pnpm, never npm  #js
+you:    we use pnpm in this repo, never npm
+claude: Noted. (calls jot remember)
 ```
 
-## Why
+jot writes `~/.jot/20261109-101502-3a1c.md`:
 
-- **One memory, every agent.** Claude Code, Cursor, Codex and any MCP client share it.
-- **Yours, on disk.** Each memory is a readable `.md` file. No cloud, no account, no database.
-- **Git-versioned.** Every change is a commit, so you get diffs, blame and undo for free.
-- **Zero dependencies.** A single static Go binary using only the standard library.
+```markdown
+---
+id: 20261109-101502-3a1c
+kind: preference
+tags: [js, tooling]
+source: claude-code
+created: 2026-11-09T10:15:02Z
+updated: 2026-11-09T10:15:02Z
+---
+
+Use pnpm, never npm, in JS projects.
+```
+
+Tuesday, in Cursor:
+
+```
+you:    add a lint script
+cursor: (calls jot recall "add lint script to package.json")
+        [20261109-101502-3a1c] (preference, from global memory, tags: js, tooling)
+        Use pnpm, never npm, in JS projects.
+cursor: Running pnpm add -D eslint ...
+```
+
+Whether an agent calls `recall` on its own is up to the agent. jot's server
+tells every agent to, and `jot setup` also adds a short block to the
+instructions file that Claude Code, Codex and Antigravity read every session.
+Cursor and Claude Desktop rely on the server's instructions alone.
+
+## FAQ
+
+**Does anything leave my machine?** No. The jot CLI has no server, account or
+telemetry; your agents start it as a local process. The only network call it
+can make is to [Ollama](https://ollama.com) on `localhost`, if you turn on
+semantic search. (The Windows desktop app also checks GitHub for updates when
+it opens.)
+
+**Where do the files live?** Global memory is in `~/.jot` (or `$JOT_HOME`).
+Project memory, if you create it with `jot init --project`, is in
+`<repo>/.jot`, and agents working in that repo search both. `jot where` prints
+the stores in use. Each memory is a Markdown file you can read, edit or grep.
+
+**How do I undo something?** Every change is a git commit in the store (when
+git is installed). `jot log` shows the history; `git -C ~/.jot show <hash>`
+shows an old version, and `git -C ~/.jot checkout <hash>^ -- <id>.md` brings
+back a deleted memory. To disconnect jot from your tools, run
+`jot setup --undo`; it removes only what it added, and the first time it edits
+a config it keeps the original next to it as `<file>.jot-backup`.
+
+**Which tools work?** `jot setup` connects Claude Code, Cursor, Codex,
+Antigravity and Claude Desktop. Any other MCP client works with command `jot`,
+args `["serve"]` over stdio; see [docs/setup.md](docs/setup.md).
+
+**What do agents save?** jot asks them to save few, short, self-contained
+memories: preferences you state, decisions, corrections, and non-obvious facts
+about a project. Not task progress, code, logs or secrets. Similar memories
+are caught before a second copy is saved, and `jot dupes` finds the rest.
+
+**How do I see or change what's saved?** `jot ls`, `jot search <words>`,
+`jot edit <id>` and `jot rm <id>`, the Windows desktop app, or any text
+editor.
 
 ## Install
+
+**macOS and Linux:** the one-line installer above, or download a
+`jot_<version>_<os>_<arch>.tar.gz` from
+[Releases](https://github.com/ArpitK24/jot/releases). The installer puts `jot`
+in `~/.local/bin` (`/usr/local/bin` as root); set `JOT_INSTALL_DIR` to choose
+another folder and `JOT_VERSION` to pin a version.
 
 **Windows desktop app:** download the newest `jot-<version>-windows-x64-setup.exe`
 from a `jot desktop` release on the [Releases](https://github.com/ArpitK24/jot/releases) page.
@@ -31,8 +126,10 @@ click *More info*, then *Run anyway*. From 0.3.1 the app updates itself: it
 checks GitHub when it opens and installs a new version in one click, after
 checking its SHA-256. Light, dark or system appearance is in Settings.
 
-**CLI only:** download a binary for macOS, Linux or Windows from
-[Releases](https://github.com/ArpitK24/jot/releases), or build with Go 1.23+:
+**Windows CLI only:** the PowerShell one-liner above installs `jot.exe` to
+`%LOCALAPPDATA%\jot\bin` and adds it to your user PATH.
+
+**With Go 1.23+:**
 
 ```sh
 go install github.com/ArpitK24/jot/cmd/jot@latest
@@ -41,15 +138,7 @@ go install github.com/ArpitK24/jot/cmd/jot@latest
 It's also listed on the [official MCP Registry](https://registry.modelcontextprotocol.io)
 as `io.github.ArpitK24/jot`, with one-click `.mcpb` bundles on every release.
 
-Then create your memory store:
-
-```sh
-jot init
-```
-
-Then connect your agents. `jot setup` finds Claude Code, Cursor, Codex,
-Antigravity and Claude Desktop, shows the exact lines it will add to each
-config, and asks once before writing:
+### Connecting tools
 
 ```
 $ jot setup
@@ -62,16 +151,27 @@ $ jot setup
 Connect 2 tools? [y/N]
 ```
 
-You never have to tell an agent to "check jot". jot's MCP server tells each
-agent to recall before a task and remember lasting preferences. Not every tool
-passes that on to its model, so `jot setup` also adds a short marked block to
-the tool's own instructions file, which the agent reads at the start of every
-session: `~/.claude/CLAUDE.md` (Claude Code), `~/.codex/AGENTS.md` (Codex) and
-`~/.gemini/GEMINI.md` (Antigravity). Cursor and Claude Desktop rely on the
-server's instructions and tool descriptions.
+Besides the MCP entry, `jot setup` adds a short marked block to the tool's own
+instructions file, which the agent reads at the start of every session:
+`~/.claude/CLAUDE.md` (Claude Code), `~/.codex/AGENTS.md` (Codex) and
+`~/.gemini/GEMINI.md` (Antigravity). Undo both with `jot setup --undo`. To
+configure a tool by hand, see [docs/setup.md](docs/setup.md).
 
-Undo both with `jot setup --undo`. To configure a tool by hand, see
-[docs/setup.md](docs/setup.md).
+From the next release, `jot doctor` checks the store, each tool's entry and instructions block, that
+the configured `jot` exists and answers MCP requests, and semantic search, and
+prints the exact command that fixes each problem:
+
+```
+$ jot doctor
+...
+Tools
+  ✓ Claude Code      MCP entry in ~/.claude.json
+  ✗                  jot block missing or outdated in ~/.claude/CLAUDE.md
+      fix: jot setup claude-code
+  ✓ Cursor           MCP entry in ~/.cursor/mcp.json
+Server
+  ✓ jot serve        ~/.local/bin/jot answers initialize and tools/list (jot <version>, 5 tools)
+```
 
 ## How it works
 
@@ -98,13 +198,16 @@ Use pnpm, never npm.
 ```
 
 Recall uses BM25 ranking with boosts for tag matches and recent updates,
-across project memories and then global ones.
+across project memories and global ones, and says which store each result
+came from (labels from the next release). An agent started inside a repo with a `.jot` folder gets that
+repo's memories; from the next release, clients that report their workspace
+through MCP roots get them even when they start jot elsewhere.
 
 ### MCP tools
 
 | Tool       | What it does                                         |
 |------------|------------------------------------------------------|
-| `remember` | Save one preference, decision, fact or note. If a similar memory exists, it saves nothing and points to that one instead |
+| `remember` | Save one preference, decision, fact or note. If a similar memory exists, it saves nothing and points to that one instead. From the next release it refuses empty text, more than 600 characters, and anything that looks like a key or password |
 | `recall`   | Search memory for what's relevant to the task        |
 | `update`   | Rewrite a memory that changed                        |
 | `forget`   | Delete a memory                                      |
@@ -117,6 +220,7 @@ jot init [--project]     jot search <query>     jot show <id>     jot log
 jot add [-k -t -p] text  jot ls [-k -t]         jot edit <id>     jot where
 jot serve                jot rm <id>            jot version
 jot setup [--undo]       jot dupes              jot merge <keep> <drop>
+jot doctor
 ```
 
 ### Semantic search (optional)
