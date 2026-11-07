@@ -355,12 +355,14 @@ func (a *App) KeepBoth(keepID, dropID string) error {
 
 // Tool is one AI tool and whether jot is connected to it.
 type Tool struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Config  string `json:"config"`
-	State   string `json:"state"` // missing, absent, different, connected
-	Snippet string `json:"snippet"`
-	Lines   int    `json:"lines"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Config   string `json:"config"`
+	State    string `json:"state"` // missing, absent, different, connected
+	Snippet  string `json:"snippet"`
+	Lines    int    `json:"lines"`
+	Rules    string `json:"rules,omitempty"`    // instructions file jot will add its block to
+	RulesAdd string `json:"rulesAdd,omitempty"` // that block, when it needs adding
 }
 
 var stateNames = map[setup.State]string{
@@ -384,6 +386,9 @@ func (a *App) Tools() []Tool {
 			t.State = stateNames[p.State]
 			t.Snippet = strings.TrimRight(p.Snippet, "\n")
 			t.Lines = strings.Count(t.Snippet, "\n") + 1
+			if p.Rules {
+				t.Rules, t.RulesAdd = tilde(c.Rules), strings.TrimRight(setup.RulesBlock, "\n")
+			}
 		}
 		out = append(out, t)
 	}

@@ -406,12 +406,12 @@ function renderOnboarding() {
 <td class="pth">${t.state === 'missing' ? '' : esc(t.config)}</td><td class="st ${lbl[0]}">${lbl[1]}</td></tr>`;
     }).join('');
     const cur = S.tools.find(t => t.id === S.obCur);
-    const diff = cur && cur.state !== 'missing' && cur.snippet ? `<div class="diff"><div class="h"><span>${esc(cur.config)}</span><span>${cur.state === 'connected' ? 'already there' : '+' + cur.lines + ' lines'}</span></div><pre>${esc(cur.snippet).split('\n').map(l => `<span class="add">${cur.state === 'connected' ? '  ' : '+ '}${l}</span>`).join('\n')}</pre></div>` : '';
+    const diff = cur && cur.state !== 'missing' && cur.snippet ? `<div class="diff"><div class="h"><span>${esc(cur.config)}</span><span>${cur.state === 'connected' ? 'already there' : '+' + cur.lines + ' lines'}</span></div><pre>${esc(cur.snippet).split('\n').map(l => `<span class="add">${cur.state === 'connected' ? '  ' : '+ '}${l}</span>`).join('\n')}</pre></div>${rulesDiff(cur)}` : '';
     const n = S.obPick.size;
     const noCLI = !st.cli;
     body = `<div class="step">Step 2 of 3 · Connect</div>
 <h1 class="serif">Which tools should share your notes?</h1>
-<p class="lead">${found ? `jot found ${found === 1 ? 'one AI tool' : numWord(found) + ' AI tools'} on this computer. It adds one entry to each tool’s MCP config and changes nothing else. The original file is backed up, and you can undo this in Settings.` : 'jot didn’t find any supported AI tools yet. Install Claude Code, Cursor, Codex, Antigravity or Claude Desktop, then connect them from Settings.'}</p>
+<p class="lead">${found ? `jot found ${found === 1 ? 'one AI tool' : numWord(found) + ' AI tools'} on this computer. It adds one entry to each tool’s MCP config, plus a short note in its instructions file so the agent checks jot on its own. Originals are backed up, and you can undo this in Settings.` : 'jot didn’t find any supported AI tools yet. Install Claude Code, Cursor, Codex, Antigravity or Claude Desktop, then connect them from Settings.'}</p>
 ${noCLI ? `<p class="lead" style="color:var(--red);margin-top:-14px">The jot command-line tool is missing from the app folder, so tools can’t be connected. Reinstall jot to fix this.</p>` : ''}
 <table class="tt">${rows}</table>${diff}
 <div class="act"><span class="note">Notes are Markdown files in <span class="mono">${esc(tildeish(st.stores[0].dir))}</span></span><span style="flex:1"></span>
@@ -464,6 +464,13 @@ function bindOnboarding() {
 
 // ---------- settings
 
+// The short block jot adds to a tool's own instructions file, so its agent
+// checks shared memory without being asked.
+function rulesDiff(t) {
+  if (!t || !t.rulesAdd) return '';
+  return `<div class="diff" style="margin-top:10px"><div class="h"><span>${esc(t.rules)}</span><span>so the agent checks jot on its own</span></div><pre>${esc(t.rulesAdd).split('\n').map(l => `<span class="add">+ ${l}</span>`).join('\n')}</pre></div>`;
+}
+
 function renderSettings() {
   const st = S.state;
   const tab = (id, icon, label) => `<button class="${S.settingsTab === id ? 'on' : ''}" data-tab="${id}">${icon}${label}</button>`;
@@ -489,8 +496,8 @@ function renderSettings() {
       return `<tr class="${t.state !== 'missing' ? 'click' : ''}${S.obCur === t.id ? ' cur' : ''}" data-id="${t.id}" style="${t.state === 'missing' ? 'opacity:.5' : ''}"><td class="nm" style="padding-left:4px">${esc(t.name)}</td><td class="pth">${t.state === 'missing' ? '' : esc(t.config)}</td><td class="st ${lbl[0]}">${lbl[1]}</td><td style="width:120px;text-align:right;padding-right:4px">${btn}</td></tr>`;
     }).join('');
     const cur = S.tools.find(t => t.id === S.obCur && t.state !== 'missing');
-    const diff = cur && cur.snippet ? `<div class="diff"><div class="h"><span>${esc(cur.config)}</span><span>${cur.state === 'connected' ? 'current entry' : '+' + cur.lines + ' lines'}</span></div><pre>${esc(cur.snippet).split('\n').map(l => `<span class="add">${cur.state === 'connected' ? '  ' : '+ '}${l}</span>`).join('\n')}</pre></div>` : '';
-    body = `<div class="form" style="display:block"><p class="muted" style="margin-bottom:16px;font-size:13px;line-height:1.55">jot adds one <span class="mono">jot</span> entry to each tool’s MCP config. The first time it edits a file, it saves the original as <span class="mono">.jot-backup</span>. Restart a tool after connecting it.</p><table class="tt">${rows}</table>${diff}
+    const diff = cur && cur.snippet ? `<div class="diff"><div class="h"><span>${esc(cur.config)}</span><span>${cur.state === 'connected' ? 'current entry' : '+' + cur.lines + ' lines'}</span></div><pre>${esc(cur.snippet).split('\n').map(l => `<span class="add">${cur.state === 'connected' ? '  ' : '+ '}${l}</span>`).join('\n')}</pre></div>${rulesDiff(cur)}` : '';
+    body = `<div class="form" style="display:block"><p class="muted" style="margin-bottom:16px;font-size:13px;line-height:1.55">jot adds one <span class="mono">jot</span> entry to each tool’s MCP config, and a short marked block to its instructions file (CLAUDE.md, AGENTS.md, GEMINI.md) so the agent checks jot without being asked. The first time it edits a file, it saves the original as <span class="mono">.jot-backup</span>. Restart a tool after connecting it.</p><table class="tt">${rows}</table>${diff}
 ${S.tools.some(t => t.state === 'missing') ? `<div class="line" style="margin-top:14px;gap:12px"><span class="muted" style="font-size:12.5px">Installed a tool just now?</span><button class="btn sm" id="s-recheck">Check again</button></div>` : ''}</div>`;
   } else {
     const rows = st.stores.map((s, i) => `<div class="sr"><span class="n">${esc(s.label)}</span><span class="p" title="${esc(s.dir)}">${esc(s.dir)}</span><span class="c">${s.count} note${s.count === 1 ? '' : 's'}${s.git ? ' · git' : ''}</span>
