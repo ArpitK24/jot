@@ -109,6 +109,25 @@ jot serve                jot rm <id>            jot version
 jot setup [--undo]       jot dupes              jot merge <keep> <drop>
 ```
 
+### Semantic search (optional)
+
+Keyword search is built in and needs nothing. To also find notes that say
+the same thing in other words, run [Ollama](https://ollama.com) and turn
+semantic search on:
+
+```sh
+ollama pull all-minilm   # 46 MB
+jot embed on             # or: Settings → Search in the desktop app
+jot embed status
+```
+
+Search, `recall`, `jot dupes` and the `remember` duplicate guard then use
+keyword and semantic matches together. If Ollama isn't running, jot falls
+back to keyword search. Vectors are cached in your user cache folder, never
+in the store, and nothing leaves your machine. Use `--model` to pick another
+Ollama embedding model (`embeddinggemma` and `nomic-embed-text` are tuned
+too) and `jot embed off` to turn it off.
+
 ### Duplicates
 
 Agents often save the same thing twice in different words. `jot dupes` lists
@@ -128,7 +147,7 @@ $ jot dupes
 - [x] `jot setup` to connect installed agents in one step
 - [x] Desktop app for Windows (macOS and Linux next)
 - [ ] Expiry and review for stale facts
-- [ ] Optional local embeddings (Ollama) for semantic recall
+- [x] Optional local embeddings (Ollama) for semantic recall
 - [ ] `jot sync` through a git remote across machines
 - [ ] TUI browser
 
