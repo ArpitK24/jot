@@ -30,6 +30,11 @@ type App struct {
 	ixMu  sync.Mutex
 	ix    *embed.Index
 	ixCfg embed.Config
+
+	askMu   sync.Mutex
+	emit    emitter                       // where reply events go
+	streams map[string]context.CancelFunc // replies in progress, by stream id
+	busy    map[string]bool               // chats answering right now
 }
 
 // semantic returns the embedding index when semantic search is on. The

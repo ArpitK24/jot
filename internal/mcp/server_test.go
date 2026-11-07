@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/ArpitK24/jot/internal/ask"
 	"github.com/ArpitK24/jot/internal/store"
 )
 
@@ -97,5 +99,37 @@ func TestRememberCatchesDuplicates(t *testing.T) {
 	}
 	if ms, _ := s.Stores[0].List(); len(ms) != 2 {
 		t.Fatalf("want 2 memories, got %d", len(ms))
+	}
+}
+
+// Ask keeps chats in the global store's chats/ folder. They must never
+// reach agents through recall or list, or count as duplicates.
+func TestChatsDontLeakIntoRecall(t *testing.T) {
+	st := store.Open(t.TempDir(), "global")
+	if _, err := st.Add("Prefers tabs over spaces in Go", "preference", nil, "test"); err != nil {
+		t.Fatal(err)
+	}
+	cs := &ask.Chats{Store: st}
+	c := cs.New(time.Now())
+	c.Turns = []ask.Turn{
+		{Role: ask.User, At: time.Now(), Content: "Do I prefer tabs or spaces in Go? zebra-marker"},
+		{Role: ask.Assistant, Model: "ollama/m", At: time.Now(), Content: "Tabs over spaces in Go. zebra-marker"},
+	}
+	if err := cs.Save(c, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Stores: []*store.Store{st}, Version: "test", Source: "test"}
+	res := rpc(t, s,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"recall","arguments":{"query":"tabs spaces go zebra-marker"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"remember","arguments":{"text":"Tabs over spaces in Go. zebra-marker"}}}`,
+	)
+	for i, r := range res[:2] {
+		if got := text(r); strings.Contains(got, "zebra") || strings.Count(got, "[") != 1 {
+			t.Fatalf("response %d leaked a chat:\n%s", i, got)
+		}
+	}
+	if got := text(res[2]); strings.Contains(got, c.ID) {
+		t.Fatalf("remember matched a chat: %s", got)
 	}
 }

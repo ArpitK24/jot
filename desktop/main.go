@@ -81,8 +81,11 @@ func main() {
 		MinHeight:        560,
 		BackgroundColour: paper,
 		AssetServer:      &assetserver.Options{Assets: assets},
-		OnStartup:        func(ctx context.Context) { win.ctx = ctx },
-		Bind:             []interface{}{app, win},
+		OnStartup: func(ctx context.Context) {
+			win.ctx = ctx
+			app.setEmitter(func(name string, data any) { wruntime.EventsEmit(ctx, name, data) })
+		},
+		Bind: []interface{}{app, win},
 		Windows: &windows.Options{
 			Theme:                theme,
 			WebviewIsTransparent: false,
