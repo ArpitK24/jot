@@ -5,6 +5,9 @@ import (
 	"time"
 
 	"github.com/ArpitK24/jot/internal/store"
+
+	"github.com/ArpitK24/jot/internal/embed"
+	"github.com/ArpitK24/jot/internal/embed/embedtest"
 )
 
 func mem(id, body, kind string, tags ...string) *store.Memory {
@@ -57,5 +60,43 @@ func TestTokenize(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("got %v want %v", got, want)
 		}
+	}
+}
+
+func TestSemanticFindsParaphrase(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", d)
+	t.Setenv("HOME", d)
+	t.Setenv("LocalAppData", d)
+	srv := embedtest.Server(nil)
+	defer srv.Close()
+	now := time.Now()
+	mems := []*store.Memory{
+		{ID: "a", Body: "Users authenticate with a JWT stored in the session cookie.", Kind: "fact", Updated: now},
+		{ID: "b", Body: "Package manager is pnpm, not npm.", Kind: "fact", Updated: now},
+		{ID: "c", Body: "Ship to production only from main.", Kind: "decision", Updated: now},
+	}
+	// No word of the query appears in note a.
+	if res := Search(mems, "how does login work", Options{}); len(res) != 0 {
+		t.Fatalf("keyword search should find nothing, got %v", res[0].Memory.ID)
+	}
+	ix := embed.Open(embed.Config{Provider: "ollama", URL: srv.URL})
+	res := Search(mems, "how does login work", Options{Index: ix})
+	if len(res) == 0 || res[0].Memory.ID != "a" {
+		t.Fatalf("semantic search missed the auth note: %v", res)
+	}
+	// Keyword hits still rank, and a note found both ways comes first.
+	res = Search(mems, "pnpm dependencies", Options{Index: ix})
+	if len(res) == 0 || res[0].Memory.ID != "b" {
+		t.Fatalf("got %v", res)
+	}
+
+	// Model down: fall back to keywords and say why.
+	srv.Close()
+	var why error
+	ix = embed.Open(embed.Config{Provider: "ollama", URL: srv.URL, Model: "other"})
+	res = Search(mems, "pnpm", Options{Index: ix, Err: &why})
+	if len(res) != 1 || why == nil {
+		t.Fatalf("fallback: %d results, err %v", len(res), why)
 	}
 }

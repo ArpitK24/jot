@@ -1,15 +1,21 @@
 // Package search ranks memories against a query with BM25, plus small
 // boosts for tag matches and recency. No index is kept on disk: memory
 // stores are small enough to score in memory on every call.
+//
+// When embeddings are on (Options.Index), keyword and semantic rankings are
+// fused, so a note that says the same thing in other words still turns up.
+// If the model can't be reached, search quietly stays keyword-only.
 package search
 
 import (
+	"context"
 	"math"
 	"sort"
 	"strings"
 	"time"
 	"unicode"
 
+	"github.com/ArpitK24/jot/internal/embed"
 	"github.com/ArpitK24/jot/internal/store"
 )
 
@@ -34,7 +40,20 @@ type Options struct {
 	Kind  string
 	Tags  []string // memory must carry every one of these
 	Now   time.Time
+
+	// Index, when set, adds semantic matches. Nil means keyword only.
+	Index *embed.Index
+	// MinSimilarity is the cosine a semantic-only match needs (default 0.55).
+	MinSimilarity float64
+	// Err, when set, receives the reason semantic search was skipped.
+	Err *error
 }
+
+const (
+	rrfK          = 60.0
+	minSimilarity = 0.55
+	semTimeout    = 20 * time.Second
+)
 
 // Search scores mems against query. An empty query returns the newest
 // memories that pass the filters.
@@ -57,6 +76,36 @@ func Search(mems []*store.Memory, query string, opt Options) []Result {
 		return top(pool, opt.Limit)
 	}
 
+	if len(pool) == 0 {
+		return nil
+	}
+	scores := bm25(pool, terms, opt.Now)
+	if opt.Index != nil {
+		if fused, err := fuse(pool, query, scores, opt); err == nil {
+			scores = fused
+		} else if opt.Err != nil {
+			*opt.Err = err
+		}
+	}
+	idx := make([]int, 0, len(pool))
+	for i := range pool {
+		if scores[i] > 0 {
+			idx = append(idx, i)
+		}
+	}
+	sort.SliceStable(idx, func(a, c int) bool { return scores[idx[a]] > scores[idx[c]] })
+	out := make([]Result, 0, opt.Limit)
+	for _, i := range idx {
+		if len(out) == opt.Limit {
+			break
+		}
+		out = append(out, Result{Memory: pool[i], Score: scores[i]})
+	}
+	return out
+}
+
+// bm25 scores every memory in pool against terms; 0 means no match.
+func bm25(pool []*store.Memory, terms []string, now time.Time) []float64 {
 	docs := make([][]string, len(pool))
 	df := map[string]int{}
 	total := 0
@@ -70,9 +119,6 @@ func Search(mems []*store.Memory, query string, opt Options) []Result {
 				df[t]++
 			}
 		}
-	}
-	if len(pool) == 0 {
-		return nil
 	}
 	avg := float64(total) / float64(len(pool))
 	n := float64(len(pool))
@@ -103,28 +149,70 @@ func Search(mems []*store.Memory, query string, opt Options) []Result {
 				}
 			}
 		}
-		age := opt.Now.Sub(m.Updated).Hours() / 24
+		age := now.Sub(m.Updated).Hours() / 24
 		if age < 0 {
 			age = 0
 		}
 		s += recencyBoost * math.Exp(-age*math.Ln2/recencyDays)
 		scores[i] = s
 	}
-	idx := make([]int, 0, len(pool))
+	return scores
+}
+
+// fuse merges the keyword ranking with a semantic one by reciprocal rank
+// fusion. A memory found both ways ranks above one found only one way.
+func fuse(pool []*store.Memory, query string, kw []float64, opt Options) ([]float64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), semTimeout)
+	defer cancel()
+	q, err := opt.Index.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	texts := make([]string, len(pool))
+	for i, m := range pool {
+		texts[i] = m.Body
+	}
+	vecs, err := opt.Index.Documents(ctx, texts)
+	if err != nil {
+		return nil, err
+	}
+	minSim := opt.MinSimilarity
+	if minSim <= 0 {
+		minSim = minSimilarity
+	}
+	sem := make([]float64, len(pool))
 	for i := range pool {
-		if scores[i] > 0 {
+		if c := embed.Cosine(q, vecs[i]); c >= minSim {
+			sem[i] = c
+		}
+	}
+	kr, sr := ranks(kw), ranks(sem)
+	out := make([]float64, len(pool))
+	for i := range pool {
+		if kr[i] > 0 {
+			out[i] += 1 / (rrfK + float64(kr[i]))
+		}
+		if sr[i] > 0 {
+			out[i] += 1 / (rrfK + float64(sr[i]))
+		}
+	}
+	return out, nil
+}
+
+// ranks gives each positive score its 1-based rank, 0 for no score.
+func ranks(scores []float64) []int {
+	idx := make([]int, 0, len(scores))
+	for i, s := range scores {
+		if s > 0 {
 			idx = append(idx, i)
 		}
 	}
-	sort.SliceStable(idx, func(a, c int) bool { return scores[idx[a]] > scores[idx[c]] })
-	out := make([]Result, 0, opt.Limit)
-	for _, i := range idx {
-		if len(out) == opt.Limit {
-			break
-		}
-		out = append(out, Result{Memory: pool[i], Score: scores[i]})
+	sort.SliceStable(idx, func(a, b int) bool { return scores[idx[a]] > scores[idx[b]] })
+	r := make([]int, len(scores))
+	for k, i := range idx {
+		r[i] = k + 1
 	}
-	return out
+	return r
 }
 
 func keep(m *store.Memory, opt Options) bool {
