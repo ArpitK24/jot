@@ -255,6 +255,31 @@ $ jot dupes
       jot merge 20261106-091200-a3f9 20261104-180511-7be0
 ```
 
+### Ask (chat with your notes)
+
+`jot ask` answers a question from your own memories. It recalls the notes that
+match, sends them with the question to a model you choose, and streams the
+answer. The desktop app has the same thing as an Ask view, with a "Used N
+notes" list under each reply and a Remember button to save a fact from it.
+
+```
+$ jot ask "which package manager do we use?"
+$ jot ask -m llama3.2 -c <chat-id> "and for Python?"   # continue a chat
+$ jot chats                                             # list saved chats
+$ jot models                                            # what you can pick
+```
+
+Models: Ollama (local, no key), any OpenAI-compatible server (OpenAI,
+OpenRouter, Groq, LM Studio) and Anthropic. Keys live in
+`<user config dir>/jot/keys.json` with owner-only permissions, never in the
+store; `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` also work, and a saved key
+wins over them. In the desktop app, set them in Settings → Models.
+
+Chats are Markdown files in the global store's `chats/` folder, versioned like
+everything else. They never show up in Notes, duplicate checks, or what agents
+get from `recall`, so a chat can't pollute your agents' memory. Only what you
+choose to Remember becomes a note.
+
 ## Roadmap
 
 - [x] Merge near-duplicate memories instead of piling them up
@@ -262,6 +287,7 @@ $ jot dupes
 - [x] Desktop app for Windows (macOS and Linux next)
 - [ ] Expiry and review for stale facts
 - [x] Optional local embeddings (Ollama) for semantic recall
+- [x] Ask: chat with your notes using Ollama, OpenAI-compatible or Anthropic models
 - [ ] `jot sync` through a git remote across machines
 - [ ] TUI browser
 
