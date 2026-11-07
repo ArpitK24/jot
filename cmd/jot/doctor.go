@@ -265,10 +265,15 @@ func handshake(command string) (tools []string, version string, err error) {
 	if err := cmd.Start(); err != nil {
 		return nil, "", err
 	}
-	defer func() {
-		in.Close()
-		cmd.Wait()
-	}()
+	waited := false
+	wait := func() {
+		if !waited {
+			waited = true
+			in.Close()
+			cmd.Wait()
+		}
+	}
+	defer wait()
 	io.WriteString(in, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"jot-doctor","version":"1"}}}`+"\n"+
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`+"\n"+
 		`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`+"\n")
@@ -322,6 +327,7 @@ func handshake(command string) (tools []string, version string, err error) {
 		if ctx.Err() != nil {
 			return nil, "", fmt.Errorf("no answer within %s", serveTimeout)
 		}
+		wait() // stderr is complete only once the process is reaped
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			msg = "exited without answering"
