@@ -63,6 +63,9 @@ func isEmbedding(name string, families []string) bool {
 	return false
 }
 
+// ollamaMaxTokens caps a local reply when the request sets no limit.
+const ollamaMaxTokens = 2048
+
 // Stream implements Provider with /api/chat, which streams one JSON object
 // per line.
 func (p *OllamaProvider) Stream(ctx context.Context, req Request, onDelta func(string)) (string, error) {
@@ -70,10 +73,12 @@ func (p *OllamaProvider) Stream(ctx context.Context, req Request, onDelta func(s
 	if sys != "" {
 		msgs = append([]Message{{Role: RoleSystem, Content: sys}}, msgs...)
 	}
-	body := map[string]any{"model": req.Model, "messages": msgs, "stream": true}
-	if req.MaxTokens > 0 {
-		body["options"] = map[string]any{"num_predict": req.MaxTokens}
+	// Small local models can loop forever; cap a reply unless told otherwise.
+	max := req.MaxTokens
+	if max <= 0 {
+		max = ollamaMaxTokens
 	}
+	body := map[string]any{"model": req.Model, "messages": msgs, "stream": true, "options": map[string]any{"num_predict": max}}
 	resp, err := post(ctx, Ollama, p.URL+"/api/chat", body, nil)
 	if err != nil {
 		return "", notFoundHint(err, req.Model)

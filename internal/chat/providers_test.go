@@ -59,7 +59,8 @@ func TestOllamaStream(t *testing.T) {
 		t.Fatalf("got %q %q %v", deltas, full, err)
 	}
 	msgs := sent["messages"].([]any)
-	if sent["stream"] != true || len(msgs) != 2 || msgs[0].(map[string]any)["role"] != "system" {
+	if sent["stream"] != true || len(msgs) != 2 || msgs[0].(map[string]any)["role"] != "system" ||
+		sent["options"].(map[string]any)["num_predict"] != float64(ollamaMaxTokens) {
 		t.Fatalf("request: %+v", sent)
 	}
 	ms, err := p.Models(context.Background())
