@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ArpitK24/jot/internal/dedup"
+	"github.com/ArpitK24/jot/internal/embed"
 	"github.com/ArpitK24/jot/internal/search"
 	"github.com/ArpitK24/jot/internal/store"
 )
@@ -20,7 +21,8 @@ const protocolVersion = "2025-06-18"
 type Server struct {
 	Stores  []*store.Store
 	Version string
-	Source  string // default source label when a client doesn't send one
+	Source  string       // default source label when a client doesn't send one
+	Index   *embed.Index // semantic search; nil means keyword only
 }
 
 type request struct {
@@ -141,7 +143,7 @@ func (s *Server) call(name string, raw json.RawMessage) (string, error) {
 			return "", err
 		}
 		if !a.Force {
-			if sim := dedup.Similar(s.all(), a.Text, 0); len(sim) > 0 {
+			if sim, _ := dedup.SimilarWith(s.all(), a.Text, 0, s.Index); len(sim) > 0 {
 				m := sim[0]
 				return fmt.Sprintf("Not saved: this looks like an existing memory.\n[%s] (%s, %s)\n%s\n\n"+
 					"If it adds or changes something, call update with id %s. "+
@@ -160,7 +162,7 @@ func (s *Server) call(name string, raw json.RawMessage) (string, error) {
 		return fmt.Sprintf("Remembered %s (%s, %s).", m.ID, m.Kind, m.Scope), nil
 	case "recall":
 		mems := s.all()
-		res := search.Search(mems, a.Query, search.Options{Limit: a.Limit, Kind: a.Kind, Tags: a.Tags})
+		res := search.Search(mems, a.Query, search.Options{Limit: a.Limit, Kind: a.Kind, Tags: a.Tags, Index: s.Index})
 		if len(res) == 0 {
 			return "No matching memories.", nil
 		}

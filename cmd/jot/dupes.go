@@ -17,13 +17,18 @@ func runDupes(stores []*store.Store, args []string, stdout io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	pairs := dedup.Pairs(all(stores), *minScore)
+	pairs, why := dedup.PairsWith(all(stores), *minScore, semantic())
+	warnSkipped(why)
 	if len(pairs) == 0 {
 		fmt.Fprintln(stdout, "no duplicates found")
 		return nil
 	}
 	for _, p := range pairs {
-		fmt.Fprintf(stdout, "%3.0f%%  %s  %s\n", p.Score*100, p.Keep.ID, describe(p.Keep))
+		how := ""
+		if p.Semantic {
+			how = "  (same meaning)"
+		}
+		fmt.Fprintf(stdout, "%3.0f%%  %s  %s%s\n", p.Score*100, p.Keep.ID, describe(p.Keep), how)
 		fmt.Fprintf(stdout, "      %s  %s\n", p.Drop.ID, describe(p.Drop))
 		fmt.Fprintf(stdout, "      jot merge %s %s\n\n", p.Keep.ID, p.Drop.ID)
 	}

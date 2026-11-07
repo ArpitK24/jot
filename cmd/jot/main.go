@@ -11,6 +11,7 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"github.com/ArpitK24/jot/internal/embed"
 	"github.com/ArpitK24/jot/internal/mcp"
 	"github.com/ArpitK24/jot/internal/search"
 	"github.com/ArpitK24/jot/internal/store"
@@ -48,6 +49,8 @@ Usage:
       --body text|-               use this text instead of the automatic merge
       --dry-run                   print the merged text, change nothing
   jot where                       print the stores in use
+  jot embed [status|on|off|index] semantic search through a local Ollama model
+      on --model nomic-embed-text --url http://localhost:11434
   jot setup [tools...]            connect jot to the AI tools on this machine
       --dry-run                   show the changes, write nothing
       -y, --yes                   don't ask before writing
@@ -138,7 +141,13 @@ func run(argv []string, stdin io.Reader, stdout io.Writer) error {
 		if cmd == "ls" {
 			query = ""
 		}
-		res := search.Search(all(stores), query, search.Options{Limit: *n, Kind: *kind, Tags: splitTags(*tags)})
+		opt := search.Options{Limit: *n, Kind: *kind, Tags: splitTags(*tags)}
+		var why error
+		if query != "" {
+			opt.Index, opt.Err = semantic(), &why
+		}
+		res := search.Search(all(stores), query, opt)
+		warnSkipped(why)
 		if len(res) == 0 {
 			fmt.Fprintln(stdout, "nothing found")
 			return nil
@@ -211,7 +220,15 @@ func run(argv []string, stdin io.Reader, stdout io.Writer) error {
 			}
 			fmt.Fprintf(stdout, "%-7s %s (%s)\n", st.Scope, st.Dir, state)
 		}
+		if c := embed.Load(store.GlobalDir()); c.On() {
+			fmt.Fprintf(stdout, "search  keyword + semantic (%s)\n", c.Model)
+		} else {
+			fmt.Fprintln(stdout, "search  keyword")
+		}
 		return nil
+
+	case "embed":
+		return runEmbed(stores, args, stdout)
 
 	case "dupes":
 		return runDupes(stores, args, stdout)
@@ -227,7 +244,7 @@ func run(argv []string, stdin io.Reader, stdout io.Writer) error {
 		if src == "" {
 			src = "mcp"
 		}
-		srv := &mcp.Server{Stores: stores, Version: version, Source: src}
+		srv := &mcp.Server{Stores: stores, Version: version, Source: src, Index: semantic()}
 		return srv.Serve(stdin, stdout)
 	}
 	return fmt.Errorf("unknown command %q (try `jot help`)", cmd)
