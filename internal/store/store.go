@@ -250,6 +250,76 @@ func (s *Store) History(id string, n int) ([]Change, error) {
 	return cs, nil
 }
 
+// Files in subfolders of a store are not memories: List, search, dedup
+// and MCP recall only ever see top-level .md files. Features that keep
+// their own records in the store (Ask keeps chats in chats/) use the
+// calls below, which still version every change in git.
+
+// ReadFile reads a file at rel, a slash-separated path inside the store.
+func (s *Store) ReadFile(rel string) ([]byte, error) {
+	p, err := s.sub(rel)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(p)
+}
+
+// WriteFile writes data at rel, creating folders, and commits it with msg.
+func (s *Store) WriteFile(rel string, data []byte, msg string) error {
+	p, err := s.sub(rel)
+	if err != nil {
+		return err
+	}
+	if err := s.Init(); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	tmp := p + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, p); err != nil {
+		return err
+	}
+	s.commit(msg)
+	return nil
+}
+
+// RemoveFile deletes the file at rel and commits with msg. Git history
+// keeps it.
+func (s *Store) RemoveFile(rel, msg string) error {
+	p, err := s.sub(rel)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(p); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrNotFound
+		}
+		return err
+	}
+	s.commit(msg)
+	return nil
+}
+
+// sub resolves rel inside a subfolder of the store, refusing anything that
+// would escape it, touch .git, or land at the top level where memories live.
+func (s *Store) sub(rel string) (string, error) {
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	parts := strings.Split(filepath.ToSlash(clean), "/")
+	if rel == "" || filepath.IsAbs(clean) || len(parts) < 2 || filepath.VolumeName(clean) != "" {
+		return "", fmt.Errorf("invalid store path %q", rel)
+	}
+	for _, part := range parts {
+		if part == ".." || part == "." || part == "" || strings.HasPrefix(part, ".") {
+			return "", fmt.Errorf("invalid store path %q", rel)
+		}
+	}
+	return filepath.Join(s.Dir, clean), nil
+}
+
 func (s *Store) write(m *Memory) error {
 	p, err := s.path(m.ID)
 	if err != nil {
@@ -294,6 +364,10 @@ func hasGit() bool {
 	_, err := exec.LookPath("git")
 	return err == nil
 }
+
+// NewID makes an id like the ones memories get: a UTC timestamp and a
+// short random suffix, so files sort by creation time.
+func NewID(t time.Time) string { return newID(t.UTC()) }
 
 func newID(t time.Time) string {
 	b := make([]byte, 2)

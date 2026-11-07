@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -141,5 +142,51 @@ func TestHistory(t *testing.T) {
 	}
 	if _, err := s.History("../x", 10); err == nil {
 		t.Fatal("bad id accepted")
+	}
+}
+
+func TestSubfolderFilesAreNotMemories(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "mem")
+	s := Open(dir, "global")
+	if _, err := s.Add("A real note", KindNote, nil, "cli"); err != nil {
+		t.Fatal(err)
+	}
+	chat := []byte("---\nid: c1\ntitle: a chat\n---\n\n### You\n\nhello\n")
+	if err := s.WriteFile("chats/c1.md", chat, "ask c1"); err != nil {
+		t.Fatal(err)
+	}
+	ms, err := s.List()
+	if err != nil || len(ms) != 1 || ms[0].Body != "A real note" {
+		t.Fatalf("List saw chat files: %+v %v", ms, err)
+	}
+	if _, err := s.Get("chats/c1"); err == nil {
+		t.Fatal("Get reached into a subfolder")
+	}
+	got, err := s.ReadFile("chats/c1.md")
+	if err != nil || string(got) != string(chat) {
+		t.Fatalf("ReadFile: %q %v", got, err)
+	}
+	if hasGit() {
+		if log, _ := s.Log(5); !strings.Contains(log, "ask c1") {
+			t.Fatalf("chat write not committed: %s", log)
+		}
+	}
+	for _, bad := range []string{"", "c1.md", "../x/c1.md", "chats/../c1.md", ".git/config", "chats/.hidden", "/etc/passwd", "chats//"} {
+		if err := s.WriteFile(bad, []byte("x"), "bad"); err == nil {
+			t.Errorf("WriteFile(%q) allowed", bad)
+		}
+	}
+	if err := s.RemoveFile("chats/c1.md", "rm c1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveFile("chats/c1.md", "rm c1"); err != ErrNotFound {
+		t.Fatalf("second remove: %v", err)
+	}
+}
+
+func TestNewID(t *testing.T) {
+	id := NewID(time.Date(2026, 11, 8, 1, 2, 3, 0, time.FixedZone("IST", 19800)))
+	if !strings.HasPrefix(id, "20261107-193203-") || len(id) != len("20261107-193203-abcd") {
+		t.Fatalf("id %q", id)
 	}
 }
